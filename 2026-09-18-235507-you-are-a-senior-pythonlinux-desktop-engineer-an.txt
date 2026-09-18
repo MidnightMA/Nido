@@ -1,0 +1,1752 @@
+ ▐▛███▛█   Claude Code v2.1.274
+▝▜██████▀  gemini-3.8-flash · API Usage Billing
+  ▝▝ ▝▝    ~/Desktop/Nido
+
+
+⚠ ANTHROPIC_API_KEY overriding saved Console key · unset it or /logout to clear the saved key
+
+⚠ Both ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY set · auth may not work as expected
+  · to use ANTHROPIC_AUTH_TOKEN: Unset the ANTHROPIC_API_KEY environment variable, or claude /logout then say "No" to the API key approval before login.
+  · to use ANTHROPIC_API_KEY: Unset the ANTHROPIC_AUTH_TOKEN environment variable.
+
+❯ You are a senior Python/Linux desktop engineer and ML systems engineer.       
+                                                                                
+  Build a complete Linux desktop application called **Nido**: a lightweight,    
+  fully offline, Persian voice command assistant for KDE Plasma/Linux.          
+                                                                                
+  The project must be production-minded, modular, understandable, testable, and 
+  easy to extend.                                                               
+                                                                                
+  Do not merely provide snippets or a conceptual example. Actually create the   
+  full project structure, implementation, configuration, setup scripts, tests,  
+  README, and desktop/startup integration.                                      
+                                                                                
+  ## 1. Product concept                                                         
+                                                                                
+  Nido is a push-to-talk Persian voice assistant.                               
+                                                                                
+  The user presses and holds **F9**.                                            
+                                                                                
+  While F9 is held:                                                             
+                                                                                
+  * Nido captures microphone audio.                                             
+  * A small visual overlay says that Nido is listening.                         
+  * The microphone is actively recording only during the F9 hold.               
+                                                                                
+  When F9 is released:                                                          
+                                                                                
+  1. Stop recording.                                                            
+  2. Convert/normalize the captured audio to the format required by Shenava.    
+  3. Run Persian speech-to-text using Shenava Koochik.                          
+  4. Show the recognized Persian text.                                          
+  5. Translate Persian → English using a local Marian translation model         
+  accelerated by CTranslate2.                                                   
+  6. Send the English command to Needle 3.                                      
+  7. Let Needle select one or more registered tools.                            
+  8. Execute only those explicitly registered tools.                            
+  9. Show the selected tool(s), arguments, execution result, and final status   
+  in the UI.                                                                    
+  10. Return to an idle state and wait for the next F9 press.                   
+                                                                                
+  Everything must work offline after model assets have been installed.          
+                                                                                
+  The runtime must not depend on a cloud API.                                   
+                                                                                
+  ---                                                                           
+                                                                                
+  # 2. Required model stack                                                     
+                                                                                
+  Use exactly this architecture:                                                
+                                                                                
+  Microphone                                                                    
+  → Persian STT                                                                 
+  → Persian→English translation                                                 
+  → Needle 3 tool calling                                                       
+  → local tool executor                                                         
+                                                                                
+  ### STT                                                                       
+                                                                                
+  Use:                                                                          
+                                                                                
+  `Reza2kn/Shenava-Koochik-v1.0`                                                
+                                                                                
+  For practical desktop inference, use the official deployment repository:      
+                                                                                
+  `Reza2kn/Shenava-Koochik-v1.0-sherpa-onnx`                                    
+                                                                                
+  Prefer the sherpa-onnx ONNX deployment rather than loading the raw NeMo       
+  checkpoint directly.                                                          
+                                                                                
+  Important requirements:                                                       
+                                                                                
+  * 16 kHz                                                                      
+  * mono audio                                                                  
+  * float32 input to the recognizer                                             
+  * offline inference                                                           
+  * use the supplied tokenizer/tokens                                           
+  * use the supplied Persian ITN when appropriate                               
+  * do NOT enable per-feature normalization for this Shenava export             
+  * keep all model files local after setup                                      
+                                                                                
+  The application must be designed so that the STT implementation is behind an  
+  interface such as:                                                            
+                                                                                
+  ```python                                                                     
+  class SpeechRecognizer(Protocol):                                             
+      def transcribe(self, audio: np.ndarray, sample_rate: int) -> str:         
+          ...                                                                   
+  ```                                                                           
+                                                                                
+  Do not tightly couple the rest of the application to she                      
+  ──── (1272 lines hidden) ──────────────────────────────────────────────────── 
+  API changed, adapt the code to the currently available version and document   
+  the chosen versions in the project.                                           
+                                                                                
+  Pin or constrain dependency versions when practical.                          
+                                                                                
+  ---                                                                           
+                                                                                
+  # 29. Expected final behavior                                                 
+                                                                                
+  The finished Nido should feel like this:                                      
+                                                                                
+  ```text                                                                       
+  [Desktop idle]                                                                
+                                                                                
+  F9 DOWN                                                                       
+      ↓                                                                         
+  ┌────────────────────┐                                                        
+  │ 🎙 Nido             │                                                        
+  │ Listening...        │                                                       
+  └────────────────────┘                                                        
+                                                                                
+  User:                                                                         
+  "کروم رو باز کن و برو یوتیوب"                                                 
+                                                                                
+  F9 UP                                                                         
+      ↓                                                                         
+                                                                                
+  ┌────────────────────┐                                                        
+  │ 📝 Heard            │                                                       
+  │ کروم رو باز کن...   │                                                       
+  └────────────────────┘                                                        
+                                                                                
+      ↓                                                                         
+                                                                                
+  ┌────────────────────┐                                                        
+  │ 🌐 Translation      │                                                       
+  │ Open Chrome and     │                                                       
+  │ go to YouTube       │                                                       
+  └────────────────────┘                                                        
+                                                                                
+      ↓                                                                         
+                                                                                
+  ┌────────────────────┐                                                        
+  │ 🧩 Needle            │                                                      
+  │ open_app(...)       │                                                       
+  │ open_url(...)       │                                                       
+  └────────────────────┘                                                        
+                                                                                
+      ↓                                                                         
+                                                                                
+  ┌────────────────────┐                                                        
+  │ ⚙ Executing         │                                                       
+  │ ✓ Chrome opened     │                                                       
+  │ ✓ YouTube opened    │                                                       
+  └────────────────────┘                                                        
+                                                                                
+      ↓                                                                         
+                                                                                
+  IDLE                                                                          
+  ```                                                                           
+                                                                                
+  The whole experience should be fast, quiet, local, and predictable.           
+                                                                                
+  ---                                                                           
+                                                                                
+  # 30. What NOT to do                                                          
+                                                                                
+  Do not:                                                                       
+                                                                                
+  * turn Nido into a chatbot                                                    
+  * use a cloud STT API                                                         
+  * use a cloud translation API                                                 
+  * use a cloud LLM                                                             
+  * use an arbitrary shell tool                                                 
+  * rebuild every model for every command                                       
+  * reload models for every command                                             
+  * block the Qt UI thread                                                      
+  * save microphone recordings permanently                                      
+  * expose internal Needle reasoning                                            
+  * silently swallow errors                                                     
+  * silently download models at runtime                                         
+  * assume X11-only hotkeys work on Wayland                                     
+  * hardcode paths such as `/usr/bin/...`                                       
+  * require root for the full application                                       
+                                                                                
+  ---                                                                           
+                                                                                
+  # 31. Final deliverables                                                      
+                                                                                
+  At the end, deliver:                                                          
+                                                                                
+  1. Complete source code.                                                      
+  2. Working Python package.                                                    
+  3. `pyproject.toml`.                                                          
+  4. Model setup scripts.                                                       
+  5. CTranslate2 conversion/quantization script.                                
+  6. F9 global press/release implementation.                                    
+  7. Shenava integration.                                                       
+  8. Marian + CTranslate2 integration.                                          
+  9. Needle 3 integration.                                                      
+  10. Tool registry.                                                            
+  11. PySide6 overlay.                                                          
+  12. User-level systemd service.                                               
+  13. Optional KDE autostart entry.                                             
+  14. Example TOML configuration.                                               
+  15. Unit tests.                                                               
+  16. Integration-test instructions.                                            
+  17. Full GitHub README.                                                       
+  18. Troubleshooting guide.                                                    
+  19. Clear model/license attribution.                                          
+                                                                                
+  Before finishing, perform a final code review for:                            
+                                                                                
+  * import errors                                                               
+  * missing dependencies                                                        
+  * incorrect upstream API usage                                                
+  * incorrect audio formats                                                     
+  * thread-safety issues                                                        
+  * UI freezes                                                                  
+  * duplicate F9 events                                                         
+  * subprocess security issues                                                  
+  * invalid Needle tool schemas                                                 
+  * model-loading failures                                                      
+  * offline-runtime violations                                                  
+                                                                                
+  Do not stop at a scaffold.                                                    
+                                                                                
+  Produce a runnable implementation.                                            
+                                                                                
+
+  Thought for 48s, searched for 1 pattern, listed 2 directories, ran 10 shell commands (ctrl+o to expand)
+
+● Write(pyproject.toml)
+  ⎿  Wrote 63 lines to pyproject.toml
+       1 [build-system]
+       2 requires = ["hatchling"]
+       3 build-backend = "hatchling.build"
+       4 
+       5 [project]
+       7 version = "0.1.0"
+       8 description = "Lightweight, fully offline Persian voice command 
+         assistant for KDE Plasma/Linux"
+       9 readme = "README.md"
+      10 requires-python = ">=3.10"
+     … +55 lines (ctrl+o to expand)
+
+● Write(LICENSE)
+  ⎿  Wrote 21 lines to LICENSE
+       1 MIT License
+       3 Copyright (c) 2024-2026 Nido Contributors
+       4 
+         ining a copy
+       6 of this software and associated documentation files (the "Softwa
+       7 in the Software without restriction, including without limitatio
+         n the rights
+         d/or sell
+       9 copies of the Software, and to permit persons to whom the Softwa
+      10 furnished to do so, subject to the following conditions:
+     … +23 lines (ctrl+o to expand)
+
+● Write(.gitignore)
+  ⎿  Wrote 52 lines to .gitignore
+       1 # Byte-compiled / optimized / DLL files
+       2 __pycache__/
+       3 *.py[cod]
+       4 *$py.class
+       5 
+       6 # Distribution / packaging
+       7 .Python
+       8 build/
+       9 develop-eggs/
+      10 dist/
+     … +42 lines (ctrl+o to expand)
+
+  Thought for 16s (ctrl+o to expand)
+
+● Write(config/config.example.toml)
+  ⎿  Wrote 63 lines to config/config.example.toml
+       1 # Nido Configuration
+       2 # Location: ~/.config/nido/config.toml
+       3 
+       4 [assistant]
+       5 name = "Nido"
+       6 language = "fa"
+       7 
+       8 [hotkey]
+       9 # Push-to-talk key. Default is F9.
+      10 key = "KEY_F9"
+     … +56 lines (ctrl+o to expand)
+
+  Thought for 36s (ctrl+o to expand)
+
+● Write(src/nido/__init__.py)
+  ⎿  Wrote 3 lines to src/nido/__init__.py
+      1 """Nido: A lightweight, fully offline Persian voice command assis
+        tant for KDE Plasma/Linux."""
+      2 
+      3 __version__ = "0.1.0"
+
+  Thought for 13s (ctrl+o to expand)
+
+● Write(src/nido/config.py)
+  ⎿  Wrote 191 lines to src/nido/config.py
+       1 """Configuration management for Nido."""
+       2 
+       3 from __future__ import annotations
+       4 
+       5 import os
+       6 from dataclasses import dataclass, field
+       7 from pathlib import Path
+       8 from typing import Any, Dict
+       9 
+      10 try:
+     … +200 lines (ctrl+o to expand)
+
+● Write(src/nido/logging.py)
+  ⎿  Wrote 62 lines to src/nido/logging.py
+      1 """Structured logging configuration for Nido."""
+      2 
+      3 from __future__ import annotations
+      4 
+      5 import logging
+      6 import os
+      7 import sys
+      8 from pathlib import Path
+      9 
+     … +53 lines (ctrl+o to expand)
+
+  Thought for 9s (ctrl+o to expand)
+
+● Write(src/nido/events.py)
+  ⎿  Wrote 63 lines to src/nido/events.py
+      1 """Event definitions and event bus for Nido pipeline orchestratio
+        n."""
+      2 
+      3 from __future__ import annotations
+      4 
+      5 import time
+      6 from dataclasses import dataclass, field
+      7 from enum import Enum
+      8 from threading import Lock
+      9 from typing import Any, Callable, Dict, List
+     … +55 lines (ctrl+o to expand)
+
+  Thought for 12s (ctrl+o to expand)
+
+● Write(src/nido/audio/__init__.py)
+  ⎿  Wrote 5 lines to src/nido/audio/__init__.py
+      1 """Audio recording and normalization subsystem."""
+      2 
+      3 from nido.audio.recorder import AudioRecorder, AudioRecordingErro
+        r
+      4 
+      5 __all__ = ["AudioRecorder", "AudioRecordingError"]
+
+● Write(src/nido/audio/recorder.py)
+  ⎿  Wrote 164 lines to src/nido/audio/recorder.py
+      1 """Microphone audio capture and normalization for Nido."""
+      2 
+      3 from __future__ import annotations
+      4 
+      5 import threading
+      6 import time
+      7 from typing import List, Optional
+      8 
+      9 import numpy as np
+     … +174 lines (ctrl+o to expand)
+
+  Thought for 9s (ctrl+o to expand)
+
+● Write(src/nido/hotkey/base.py)
+  ⎿  Wrote 19 lines to src/nido/hotkey/base.py
+       1 """Base hotkey protocols and abstractions."""
+       2 
+       3 from __future__ import annotations
+       4 
+       5 from typing import Callable, Protocol
+       6 
+       7 Callback = Callable[[], None]
+       8 
+       9 
+      10 class HotkeyBackend(Protocol):
+     … +9 lines (ctrl+o to expand)
+
+  Thought for 17s (ctrl+o to expand)
+
+● Write(src/nido/hotkey/evdev_backend.py)
+  ⎿  Wrote 229 lines to src/nido/hotkey/evdev_backend.py
+       1 """evdev-based global push-to-talk hotkey backend for Linux (X11
+          & Wayland)."""
+       2 
+       3 from __future__ import annotations
+       4 
+       6 import os
+       7 import select
+       8 import threading
+       9 import time
+      10 from typing import Callable, List, Optional
+     … +240 lines (ctrl+o to expand)
+
+● Write(src/nido/hotkey/__init__.py)
+  ⎿  Wrote 6 lines to src/nido/hotkey/__init__.py
+      1 """Hotkey listener package."""
+      2 
+      3 from nido.hotkey.base import HotkeyBackend
+      4 from nido.hotkey.evdev_backend import EvdevHotkeyBackend, MockHot
+        keyBackend
+      5 
+      6 __all__ = ["HotkeyBackend", "EvdevHotkeyBackend", "MockHotkeyBack
+        end"]
+
+  Thought for 17s (ctrl+o to expand)
+
+● Write(src/nido/stt/shenava.py)
+  ⎿  Wrote 228 lines to src/nido/stt/shenava.py
+       1 """Persian Speech-to-Text using Shenava Koochik and sherpa-onnx.
+         """
+       2 
+       3 from __future__ import annotations
+       4 
+       6 import re
+       7 from pathlib import Path
+       8 from typing import Dict, Optional, Protocol
+       9 
+      10 import numpy as np
+     … +241 lines (ctrl+o to expand)
+● Write(src/nido/stt/__init__.py)
+  ⎿  Wrote 15 lines to src/nido/stt/__init__.py
+       1 """Speech-to-text recognition package."""
+       2 
+       3 from nido.stt.shenava import (
+       4     MockSpeechRecognizer,
+       5     ShenavaSherpaRecognizer,
+       6     SpeechRecognizer,
+       7     normalize_persian_numbers,
+       8 )
+       9 
+      10 __all__ = [
+     … +5 lines (ctrl+o to expand)
+
+  Thought for 14s (ctrl+o to expand)
+
+● Write(src/nido/translation/marian_ct2.py)
+  ⎿  Wrote 234 lines to src/nido/translation/marian_ct2.py
+       1 """Persian -> English translation using CTranslate2 and Sentence
+         Piece."""
+       2 
+       3 from __future__ import annotations
+       4 
+       6 import re
+       7 from pathlib import Path
+       8 from typing import Dict, List, Optional, Protocol
+       9 
+      10 try:
+     … +247 lines (ctrl+o to expand)
+
+● Write(src/nido/translation/__init__.py)
+  ⎿  Wrote 17 lines to src/nido/translation/__init__.py
+      1 """Persian to English translation package."""
+      2 
+      3 from nido.translation.marian_ct2 import (
+      4     ENTITY_MAP,
+      5     MarianCT2Translator,
+      6     MockTranslator,
+      7     Translator,
+      8     preprocess_persian_text,
+      9 )
+     … +7 lines (ctrl+o to expand)
+
+  Thought for 15s (ctrl+o to expand)
+
+● Write(src/nido/tools/registry.py)
+  ⎿  Wrote 110 lines to src/nido/tools/registry.py
+      1 """Tool registry and execution infrastructure for Nido."""
+      2 
+      3 from __future__ import annotations
+      4 
+      5 import inspect
+      6 from dataclasses import dataclass, field
+      7 from typing import Any, Callable, Dict, List, Optional
+      8 
+      9 from nido.logging import get_logger
+     … +109 lines (ctrl+o to expand)
+
+● Write(src/nido/tools/apps.py)
+  ⎿  Wrote 118 lines to src/nido/tools/apps.py
+       1 """Application launching and closing tools with strict whitelist
+         ing."""
+       2 
+       3 from __future__ import annotations
+       4 
+       6 import subprocess
+       7 from typing import Any, Dict, Optional
+       8 
+       9 from nido.config import DEFAULT_APPS
+      10 from nido.logging import get_logger
+     … +121 lines (ctrl+o to expand)
+
+● Write(src/nido/tools/browser.py)
+  ⎿  Wrote 63 lines to src/nido/tools/browser.py
+      1 """Web browser navigation and search tools with URL validation.""
+        "
+      2 
+      3 from __future__ import annotations
+      4 
+      5 import urllib.parse
+      6 import webbrowser
+      7 from typing import Any, Dict
+      8 
+      9 from nido.logging import get_logger
+     … +58 lines (ctrl+o to expand)
+
+  Thought for 17s (ctrl+o to expand)
+
+● Write(src/nido/tools/audio.py)
+  ⎿  Wrote 126 lines to src/nido/tools/audio.py
+      1 """System audio volume control tools."""
+      2 
+      3 from __future__ import annotations
+      4 
+      5 import shutil
+      6 import subprocess
+      7 from typing import Any, Dict
+      8 
+      9 from nido.logging import get_logger
+     … +138 lines (ctrl+o to expand)
+
+● Write(src/nido/tools/media.py)
+  ⎿  Wrote 45 lines to src/nido/tools/media.py
+      1 """Media playback control tools using MPRIS and playerctl."""
+      2 
+      3 from __future__ import annotations
+      4 
+      5 import shutil
+      6 import subprocess
+      7 from typing import Any, Dict
+      8 
+      9 from nido.logging import get_logger
+     … +40 lines (ctrl+o to expand)
+
+  Thought for 16s (ctrl+o to expand)
+
+● Write(src/nido/tools/files.py)
+  ⎿  Wrote 102 lines to src/nido/tools/files.py
+      1 """Safe file navigation and search tools."""
+      2 
+      3 from __future__ import annotations
+      4 
+      5 import os
+      6 import shutil
+      7 import subprocess
+      8 from pathlib import Path
+      9 from typing import Any, Dict, List
+     … +106 lines (ctrl+o to expand)
+
+● Write(src/nido/tools/system.py)
+  ⎿  Wrote 124 lines to src/nido/tools/system.py
+      1 """System management, diagnostics, and desktop control tools."""
+      2 
+      3 from __future__ import annotations
+      4 
+      5 import os
+      6 import platform
+      7 import shutil
+      8 import subprocess
+      9 from typing import Any, Dict
+     … +140 lines (ctrl+o to expand)
+
+● Write(src/nido/tools/__init__.py)
+  ⎿  Wrote 140 lines to src/nido/tools/__init__.py
+       1 """Tool registration and factory module for Nido."""
+       2 
+       3 from __future__ import annotations
+       4 
+       5 from typing import TYPE_CHECKING
+       6 
+       7 from nido.tools.apps import AppTools
+       8 from nido.tools.audio import (
+       9     decrease_volume,
+      10     increase_volume,
+     … +141 lines (ctrl+o to expand)
+
+  Thought for 17s (ctrl+o to expand)
+
+● Write(src/nido/needle/agent.py)
+  ⎿  Wrote 202 lines to src/nido/needle/agent.py
+       1 """Needle 3 command router and tool calling agent."""
+       2 
+       3 from __future__ import annotations
+       4 
+       5 import os
+       6 import re
+       7 from dataclasses import dataclass
+       8 from typing import Any, Dict, List, Optional
+       9 
+      10 # Enforce strict offline and privacy settings
+     … +224 lines (ctrl+o to expand)
+
+● Write(src/nido/needle/__init__.py)
+  ⎿  Wrote 5 lines to src/nido/needle/__init__.py
+      1 """Needle 3 integration and command routing package."""
+      2 
+      3 from nido.needle.agent import NeedleCommandRouter, PlannedToolCal
+        l
+      4 
+      5 __all__ = ["NeedleCommandRouter", "PlannedToolCall"]
+
+  Thought for 16s (ctrl+o to expand)
+
+● Write(src/nido/models/manager.py)
+  ⎿  Wrote 219 lines to src/nido/models/manager.py
+       1 """Model manager for downloading, preparing, and verifying local
+          model assets."""
+       2 
+       3 from __future__ import annotations
+       4 
+       6 import shutil
+       7 import subprocess
+       8 from dataclasses import dataclass
+       9 from pathlib import Path
+      10 from typing import Any, Dict, List, Optional
+     … +243 lines (ctrl+o to expand)
+
+● Write(src/nido/models/__init__.py)
+  ⎿  Wrote 5 lines to src/nido/models/__init__.py
+      1 """Model management package."""
+      2 
+      3 from nido.models.manager import ModelManager, ModelStatus
+      4 
+      5 __all__ = ["ModelManager", "ModelStatus"]
+
+  Thought for 20s (ctrl+o to expand)
+
+● Write(src/nido/pipeline.py)
+  ⎿  Wrote 237 lines to src/nido/pipeline.py
+      1 """Central pipeline orchestration for Nido."""
+      2 
+      3 from __future__ import annotations
+      4 
+      5 import time
+      6 from dataclasses import dataclass, field
+      7 from typing import Any, Dict, List, Optional
+      8 
+      9 import numpy as np
+     … +253 lines (ctrl+o to expand)
+
+  Thought for 14s (ctrl+o to expand)
+● Write(src/nido/ui/worker.py)
+  ⎿  Wrote 72 lines to src/nido/ui/worker.py
+       1 """Background worker thread for asynchronous pipeline execution 
+         in PySide6."""
+       2 
+       3 from __future__ import annotations
+       4 
+       6 
+       7 import numpy as np
+       8 
+       9 try:
+      10     from PySide6.QtCore import QObject, QThread, Signal
+     … +66 lines (ctrl+o to expand)
+
+  Thought for 44s (ctrl+o to expand)
+
+● Write(src/nido/ui/overlay.py)
+  ⎿  Wrote 279 lines to src/nido/ui/overlay.py
+       1 """KDE Plasma visual overlay widget using PySide6."""
+       2 
+       3 from __future__ import annotations
+       4 
+       5 from typing import Any, Dict, Optional
+       6 
+       7 try:
+       8     from PySide6.QtCore import QPoint, Qt, QTimer
+       9     from PySide6.QtGui import QColor, QFont, QGuiApplication
+      10     from PySide6.QtWidgets import (
+     … +287 lines (ctrl+o to expand)
+
+● Write(src/nido/ui/__init__.py)
+  ⎿  Wrote 6 lines to src/nido/ui/__init__.py
+      1 """User interface package for Nido."""
+      2 
+      3 from nido.ui.overlay import NidoOverlay
+      4 from nido.ui.worker import PipelineWorker
+      5 
+      6 __all__ = ["NidoOverlay", "PipelineWorker"]
+
+  Thought for 25s (ctrl+o to expand)
+
+● Write(src/nido/cli.py)
+  ⎿  Wrote 397 lines to src/nido/cli.py
+       1 """Command-line interface and daemon entry point for Nido."""
+       2 
+       3 from __future__ import annotations
+       4 
+       5 import argparse
+       6 import os
+       7 import signal
+       8 import sys
+       9 from pathlib import Path
+      10 from typing import Optional
+     … +427 lines (ctrl+o to expand)
+
+● Write(src/nido/__main__.py)
+  ⎿  Wrote 7 lines to src/nido/__main__.py
+      1 """Entrypoint for python -m nido."""
+      2 
+      3 import sys
+      4 from nido.cli import main
+      5 
+      6 if __name__ == "__main__":
+      7     sys.exit(main())
+
+  Thought for 11s (ctrl+o to expand)
+
+● Write(scripts/setup_models.py)
+  ⎿  Wrote 30 lines to scripts/setup_models.py
+       1 #!/usr/bin/env python3
+       2 """Standalone script to download and prepare Nido offline model 
+         assets."""
+       4 import sys
+       5 from pathlib import Path
+       6 
+       7 # Add src to pythonpath
+         "src"))
+       9 
+      10 from nido.config import load_config
+     … +23 lines (ctrl+o to expand)
+
+● Write(scripts/convert_translation_model.py)
+  ⎿  Wrote 106 lines to scripts/convert_translation_model.py
+      1 #!/usr/bin/env python3
+      2 """Convert HPLT Persian->English Marian translation model to CTra
+        nslate2 INT8 format."""
+      3 
+      4 import argparse
+      5 import os
+      6 import shutil
+      7 import subprocess
+      8 import sys
+      9 from pathlib import Path
+     … +106 lines (ctrl+o to expand)
+
+● Write(scripts/install_autostart.py)
+  ⎿  Wrote 74 lines to scripts/install_autostart.py
+      1 #!/usr/bin/env python3
+      2 """Installs user-level systemd service and KDE/XDG desktop autost
+        art entry for Nido."""
+      3 
+      4 import argparse
+      5 import os
+      6 import shutil
+      7 import subprocess
+      8 import sys
+      9 from pathlib import Path
+     … +69 lines (ctrl+o to expand)
+
+  Thought for 43s (ctrl+o to expand)
+
+● Write(systemd/nido.service)
+  ⎿  Wrote 18 lines to systemd/nido.service
+       1 [Unit]
+       2 Description=Nido Offline Persian Voice Assistant Daemon
+       3 PartOf=graphical-session.target
+       4 After=graphical-session.target pipewire.service pulseaudio.servi
+         ce
+       6 [Service]
+       7 Type=simple
+       8 ExecStart=%h/.local/bin/nido
+       9 Restart=on-failure
+      10 RestartSec=3s
+     … +8 lines (ctrl+o to expand)
+
+● Write(desktop/nido.desktop)
+  ⎿  Wrote 11 lines to desktop/nido.desktop
+       1 [Desktop Entry]
+       2 Name=Nido
+       3 GenericName=Persian Voice Assistant
+       4 Comment=Lightweight, fully offline Persian voice command assista
+         nt
+       6 Icon=audio-input-microphone
+       7 Terminal=false
+       8 Type=Application
+       9 Categories=Utility;Accessibility;AudioVideo;
+      10 StartupNotify=false
+     … +1 line (ctrl+o to expand)
+
+● Write(tests/__init__.py)
+  ⎿  Wrote 1 line to tests/__init__.py
+      1 """Test package for Nido."""
+
+● Write(tests/test_config.py)
+  ⎿  Wrote 63 lines to tests/test_config.py
+       1 """Tests for configuration loading and validation."""
+       2 
+       3 import tempfile
+       4 from pathlib import Path
+       5 
+       6 from nido.config import Config, load_config
+       7 
+       8 
+       9 def test_default_config() -> None:
+      10     config = Config()
+     … +54 lines (ctrl+o to expand)
+
+  Thought for 14s (ctrl+o to expand)
+
+● Write(tests/test_tools.py)
+  ⎿  Wrote 132 lines to tests/test_tools.py
+       1 """Tests for tool registry and safe system tool implementations.
+         """
+       2 
+       4 from nido.config import Config
+       5 from nido.tools import build_default_registry
+       6 from nido.tools.apps import AppTools
+       7 from nido.tools.audio import decrease_volume, increase_volume, s
+       8 from nido.tools.browser import open_url, search_web
+       9 from nido.tools.files import open_file, open_folder
+      10 from nido.tools.registry import ToolRegistry
+     … +126 lines (ctrl+o to expand)
+
+  Thought for 18s (ctrl+o to expand)
+
+● Write(tests/test_translation.py)
+  ⎿  Wrote 36 lines to tests/test_translation.py
+       1 """Tests for Persian->English translation subsystem."""
+       2 
+       3 from nido.translation import (
+       4     MockTranslator,
+       5     Translator,
+       6     preprocess_persian_text,
+       7 )
+       8 
+       9 
+      10 def test_preprocess_persian_text() -> None:
+     … +26 lines (ctrl+o to expand)
+
+  Thought for 19s (ctrl+o to expand)
+
+● Write(tests/test_stt.py)
+  ⎿  Wrote 52 lines to tests/test_stt.py
+      1 """Tests for Persian STT normalization and number handling."""
+      2 
+      3 import numpy as np
+      4 from nido.stt import (
+      5     MockSpeechRecognizer,
+      6     SpeechRecognizer,
+      7     normalize_persian_numbers,
+      8 )
+      9 
+     … +44 lines (ctrl+o to expand)
+
+● Write(tests/test_audio.py)
+  ⎿  Wrote 37 lines to tests/test_audio.py
+       1 """Tests for audio capture and normalization."""
+       2 
+       3 import numpy as np
+       5 
+       6 
+       7 def test_resample_audio_48k_to_16k() -> None:
+       8     # 48000 samples = 1 second at 48kHz
+         ype=np.float32))
+      10     resampled_16k = resample_audio(audio_48k, orig_sr=48000, tar
+         get_sr=16000)
+     … +30 lines (ctrl+o to expand)
+
+  Thought for 14s (ctrl+o to expand)
+● Write(tests/test_hotkey.py)
+  ⎿  Wrote 97 lines to tests/test_hotkey.py
+       1 """Tests for push-to-talk hotkey event handling."""
+       2 
+       3 from nido.hotkey import EvdevHotkeyBackend, MockHotkeyBackend
+       4 
+       5 
+       6 def test_mock_hotkey_lifecycle() -> None:
+       7     press_count = 0
+       8     release_count = 0
+       9 
+      10     def on_press() -> None:
+     … +89 lines (ctrl+o to expand)
+
+  Thought for 18s (ctrl+o to expand)
+
+● Write(tests/test_pipeline.py)
+  ⎿  Wrote 141 lines to tests/test_pipeline.py
+       1 """Tests for full assistant pipeline orchestration."""
+       2 
+       3 import numpy as np
+       4 import pytest
+       5 from nido.config import Config
+       7 from nido.needle.agent import NeedleCommandRouter, PlannedToolCa
+         ll
+       8 from nido.pipeline import AssistantPipeline, PipelineResult
+       9 from nido.stt.shenava import MockSpeechRecognizer
+      10 from nido.tools.registry import ToolRegistry
+     … +133 lines (ctrl+o to expand)
+
+● Write(tests/test_cli.py)
+  ⎿  Wrote 45 lines to tests/test_cli.py
+       1 """Tests for Nido CLI diagnostic subcommands."""
+       2 
+       3 import pytest
+       4 from nido.cli import main
+       5 
+       7 def test_cli_version(capsys: pytest.CaptureFixture[str]) -> None
+         :
+       8     with pytest.raises(SystemExit) as excinfo:
+       9         main(["--version"])
+      10     assert excinfo.value.code == 0
+     … +39 lines (ctrl+o to expand)
+
+  Thought for 16s, ran 1 shell command (ctrl+o to expand)
+
+● Write(tests/run_tests.py)
+  ⎿  Wrote 76 lines to tests/run_tests.py
+       1 #!/usr/bin/env python3
+       2 """Self-contained test runner for Nido using standard Python."""
+       3 
+       4 import sys
+       5 import traceback
+       6 from pathlib import Path
+       7 
+       8 # Add src to pythonpath
+       9 ROOT = Path(__file__).resolve().parent.parent
+      10 sys.path.insert(0, str(ROOT / "src"))
+     … +66 lines (ctrl+o to expand)
+
+  Thought for 30s, ran 1 shell command (ctrl+o to expand)
+
+● Write(README.md)
+  ⎿  Added 460 lines, removed 1 line
+        1 -# Nido                                                        
+        1   No newline at end of file
+        2 +# Nido (نیدو)                                                 
+        3 +                                                              
+        4 +> **Lightweight, fully offline Persian voice command assistant
+          + for KDE Plasma and Linux desktops.**                         
+        5 +                                                              
+        6 +[![License: MIT](https://img.shields.io/badge/License-MIT-blue
+          +.svg)](LICENSE)                                               
+        7 +[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-g
+          +reen.svg)](https://www.python.org/)                           
+        8 +[![Desktop: KDE Plasma](https://img.shields.io/badge/Desktop-K
+          +DE%20Plasma%20%2F%20Linux-blueviolet.svg)](https://kde.org/pla
+          +sma-desktop/)                                                 
+        9 +[![Privacy: 100% Offline](https://img.shields.io/badge/Privacy
+          +-100%25%20Offline-success.svg)](#privacy-and-offline-guarantee
+          +)                                                             
+       10 +                                                              
+       11 +---                                                           
+       12 +                                                              
+       13 +## What is Nido?                                              
+       14 +                                                              
+       15 +**Nido** is a push-to-talk voice assistant engineered specific
+          +ally for Linux desktop environments (optimized for KDE Plasma 
+          +on Wayland and X11). With Nido, you hold down **F9**, speak a 
+          +voice command in Persian (فارسی), and release the key.        
+       16 +                                                              
+       17 +Nido transcribes the Persian utterance locally, translates it 
+          +to a concise English command via quantized local neural transl
+          +ation, routes it to structured tool calls using **Needle 3**, 
+          +and executes the requested system actions safely.             
+       18 +                                                              
+       19 +**No cloud APIs. No telemetry. Zero audio leaves your machine.
+          +**                                                            
+       20 +                                                              
+       21 +---                                                           
+       22 +                                                              
+       23 +## Key Features                                               
+       24 +                                                              
+       25 +* **True Push-to-Talk (F9)**: Microphone records strictly whil
+          +e F9 is held down. Release triggers instant audio processing. 
+       26 +* **100% Offline Inference**:                                 
+       27 +  * **Persian STT**: [Shenava Koochik v1.0](https://huggingfac
+          +e.co/Reza2kn/Shenava-Koochik-v1.0-sherpa-onnx) via `sherpa-onn
+          +x` (16 kHz float32 mono).                                     
+       28 +  * **Persian → English Translation**: [HPLT Marian Opus MT](h
+          +ttps://huggingface.co/HPLT/translate-fa-en-v2.0-hplt_opus) acc
+          +elerated with CTranslate2 (INT8 CPU quantization).            
+       29 +  * **Command Routing**: [Needle 3](https://github.com/Cactus-
+          +Compute/needle3) by Cactus Compute with strict typed tool sche
+          +ma definitions.                                               
+       30 +* **Persian Spoken Number Handling (ITN)**: Built-in Persian I
+          +nverse Text Normalization parses numbers like "سی درصد" → `30`
+          + or "صد و بیست" → `120`.                                      
+       31 +* **KDE Plasma Visual Overlay**: A sleek, non-intrusive PySide
+          +6 frameless overlay showing the live pipeline state, heard Per
+          +sian text, translated command, selected tools, execution statu
+          +s, and latency benchmarks.                                    
+       32 +* **Safe, Whitelisted Tools**:                                
+       33 +  * Desktop applications (whitelisted aliases for browsers, te
+          +rminals, editors, file managers)                              
+       34 +  * Browser navigation (HTTP/HTTPS URL validation, Google/Duck
+          +DuckGo web search)                                            
+       35 +  * System audio volume (`pactl` / `pamixer` / `amixer` with 0
+          +–100% clamping)                                               
+       36 +  * Media playback control (MPRIS / `playerctl` for play, paus
+          +e, skip)                                                      
+       37 +  * Safe file navigation (`xdg-open` for files and folders)   
+       38 +  * Desktop utilities (Spectacle screenshots, screen locking v
+          +ia `loginctl`, hardware telemetry)                            
+       39 +* **KDE / Linux Integration**: Systemd user service (`nido.ser
+          +vice`) and XDG autostart desktop entry.                       
+       40 +                                                              
+       41 +---                                                           
+       42 +                                                              
+       43 +## Architecture                                               
+       44 +                                                              
+       45 +```text                                                       
+       46 +[ Physical Keyboard (F9 Held) ]                               
+       47 +               │                                              
+       48 +               ▼                                              
+       49 +   [ evdev Hotkey Backend ]                                   
+       50 +  (Detects F9 Down / Up, ignores repeat)                      
+       51 +               │                                              
+       52 +               ▼                                              
+       53 +    [ Audio Recorder Stream ]                                 
+       54 +  (16 kHz Mono float32 in-memory buffer)                      
+       55 +               │                                              
+       56 +          [ F9 Released ]                                     
+       57 +               │                                              
+       58 +               ▼                                              
+       59 +┌──────────────────────────────────────────────┐              
+       60 +│            AssistantPipeline                 │              
+       61 +│                                              │              
+       62 +│ 1. Shenava STT (sherpa-onnx)                 │              
+       63 +│    Audio Samples ──► Persian Text + ITN      │              
+       64 +│                                              │              
+       65 +│ 2. Marian Translator (CTranslate2 INT8)      │              
+       66 +│    Persian Text ──► Concise English Command  │              
+       67 +│                                              │              
+       68 +│ 3. Needle 3 Command Router                   │              
+       69 +│    English Command ──► Structured Tool Call  │              
+       70 +│                                              │              
+       71 +│ 4. Tool Registry                             │              
+       72 +│    Executes whitelisted Linux action         │              
+       73 +└──────────────────────────────────────────────┘              
+       74 +               │                                              
+       75 +               ▼                                              
+       76 +┌──────────────────────────────────────────────┐              
+       77 +│        PySide6 Frameless Overlay             │              
+       78 +│  • Heard: "کروم رو باز کن"                   │              
+       79 +│  • Translated: "Open Chrome"                 │              
+       80 +│  • Action: open_app("google-chrome")         │              
+       81 +│  • Status: ✓ Chrome launched (Total: 1.18s)  │              
+       82 +└──────────────────────────────────────────────┘              
+       83 +```                                                           
+       84 +                                                              
+       85 +---                                                           
+       86 +                                                              
+       87 +## Model Stack                                                
+       88 +                                                              
+       89 +| Component | Model / Upstream | Runtime Engine | Format | Off
+          +line Path |                                                   
+       90 +| :--- | :--- | :--- | :--- | :--- |                          
+       91 +| **Persian STT** | `Reza2kn/Shenava-Koochik-v1.0-sherpa-onnx`
+          + | `sherpa-onnx` | ONNX (float32) | `~/.local/share/nido/model
+          +s/shenava/` |                                                 
+       92 +| **Translation** | `HPLT/translate-fa-en-v2.0-hplt_opus` | `c
+          +translate2` | INT8 Marian | `~/.local/share/nido/models/transl
+          +ation-ct2/` |                                                 
+       93 +| **Tool Router**| `Cactus-Compute/needle3` | `cactus-needle` 
+          +| PyTorch / Local Agent | Reusable in-memory router |         
+       94 +                                                              
+       95 +---                                                           
+       96 +                                                              
+       97 +## Installation                                               
+       98 +                                                              
+       99 +### 1. Prerequisites                                          
+      100 +                                                              
+      101 +Ensure system audio utilities and development headers are inst
+          +alled:                                                        
+      102 +                                                              
+      103 +```bash                                                       
+      104 +# Ubuntu / Debian / KDE Neon                                  
+      105 +sudo apt install python3-pip python3-venv libasound2-dev pulse
+          +audio-utils playerctl spectacle                               
+      106 +                                                              
+      107 +# Arch Linux / Manjaro                                        
+      108 +sudo pacman -S python python-pip pipewire-pulse playerctl spec
+          +tacle                                                         
+      109 +```                                                           
+      110 +                                                              
+      111 +### 2. Configure evdev Permissions (Push-to-Talk)             
+      112 +                                                              
+      113 +For global hotkey detection under both **Wayland** and **X11**
+          +, Nido uses the Linux `evdev` kernel subsystem. Add your user 
+          +account to the `input` group:                                 
+      114 +                                                              
+      115 +```bash                                                       
+      116 +sudo usermod -aG input $USER                                  
+      117 +```                                                           
+      118 +                                                              
+      119 +> **Note:** Log out and log back in for group membership chang
+          +es to take effect.                                            
+      120 +                                                              
+      121 +### 3. Clone and Setup Environment                            
+      122 +                                                              
+      123 +```bash                                                       
+      124 +git clone https://github.com/mahdiahmadi87/Nido.git           
+      125 +cd Nido                                                       
+      126 +                                                              
+      127 +python3 -m venv .venv                                         
+      128 +source .venv/bin/activate                                     
+      129 +                                                              
+      130 +pip install --upgrade pip setuptools wheel                    
+      131 +pip install -e ".[dev]"                                       
+      132 +```                                                           
+      133 +                                                              
+      134 +---                                                           
+      135 +                                                              
+      136 +## Model Setup                                                
+      137 +                                                              
+      138 +Download and prepare the offline models:                      
+      139 +                                                              
+      140 +```bash                                                       
+      141 +# Download Shenava STT and convert Marian translation to CTran
+          +slate2 INT8                                                   
+      142 +nido models setup                                             
+      143 +                                                              
+      144 +# Check status of local model assets                          
+      145 +nido models status                                            
+      146 +                                                              
+      147 +# Verify local model inference                                
+      148 +nido models verify                                            
+      149 +```                                                           
+      150 +                                                              
+      151 +---                                                           
+      152 +                                                              
+      153 +## Running Nido                                               
+      154 +                                                              
+      155 +### Running from Terminal                                     
+      156 +                                                              
+      157 +```bash                                                       
+      158 +# Start Nido push-to-talk daemon                              
+      159 +nido                                                          
+      160 +                                                              
+      161 +# Start with verbose debug logging                            
+      162 +nido --debug                                                  
+      163 +                                                              
+      164 +# Start with a custom configuration file                      
+      165 +nido --config ~/.config/nido/config.toml                      
+      166 +```                                                           
+      167 +                                                              
+      168 +### Usage                                                     
+      169 +                                                              
+      170 +1. Press and hold **F9**.                                     
+      171 +2. Speak your command in Persian (e.g., *"کروم رو باز کن و برو
+          + یوتیوب"*).                                                   
+      172 +3. Release **F9**.                                            
+      173 +4. Nido processes the command and displays progress on the top
+          +-right overlay.                                               
+      174 +                                                              
+      175 +---                                                           
+      176 +                                                              
+      177 +## Standalone Diagnostic Commands                             
+      178 +                                                              
+      179 +Nido provides diagnostic commands to test each pipeline layer 
+          +independently:                                                
+      180 +                                                              
+      181 +```bash                                                       
+      182 +# 1. Test Persian Speech-to-Text on a WAV file                
+      183 +nido test-stt sample.wav                                      
+      184 +                                                              
+      185 +# 2. Test Persian -> English translation                      
+      186 +nido test-translate "صدا رو بذار روی سی درصد"                 
+      187 +                                                              
+      188 +# 3. Test Needle tool routing and execution                   
+      189 +nido test-command "open firefox and set volume to 50"         
+      190 +                                                              
+      191 +# 4. List all registered tools and their argument schemas     
+      192 +nido tools list                                               
+      193 +```                                                           
+      194 +                                                              
+      195 +---                                                           
+      196 +                                                              
+      197 +## Example Spoken Commands                                    
+      198 +                                                              
+      199 +| Persian Spoken Command | English Translation | Executed Tool
+          + Call |                                                       
+      200 +| :--- | :--- | :--- |                                        
+      201 +| `کروم رو باز کن` | Open Chrome | `open_app("google-chrome")`
+          + |                                                            
+      202 +| `مرورگر را باز کن و برو یوتیوب` | Open browser and go to You
+          +Tube | `open_app("firefox")`, `open_url("https://youtube.com")
+          +` |                                                           
+      203 +| `ترمینال رو باز کن` | Open terminal | `open_app("konsole")` 
+          +|                                                             
+      204 +| `صدا رو بذار روی سی درصد` | Set volume to 30 percent | `set_
+          +volume(30)` |                                                 
+      205 +| `صدا را کم کن` | Decrease volume | `decrease_volume(5)` |   
+      206 +| `صدا رو قطع کن` | Mute volume | `mute_volume()` |           
+      207 +| `آهنگ بعدی` | Next track | `next_track()` |                 
+      208 +| `پخش رو متوقف کن` | Pause playback | `play_pause()` |       
+      209 +| `عکس از صفحه بگیر` | Take screenshot | `take_screenshot()` |
+      210 +| `صفحه را قفل کن` | Lock screen | `lock_screen()` |          
+      211 +| `پوشه دانلودها رو باز کن` | Open downloads folder | `open_fo
+          +lder("~/Downloads")` |                                        
+      212 +                                                              
+      213 +---                                                           
+      214 +                                                              
+      215 +## Available Tools                                            
+      216 +                                                              
+      217 +All tools are strictly typed, isolated, and return structured 
+          +JSON responses:                                               
+      218 +                                                              
+      219 +* **Applications (`apps`)**:                                  
+      220 +  * `open_app(app_name: str)`: Launches whitelisted desktop ap
+          +plication.                                                    
+      221 +  * `close_app(app_name: str)`: Terminates whitelisted applica
+          +tion process.                                                 
+      222 +* **Browser (`browser`)**:                                    
+      223 +  * `open_url(url: str)`: Opens HTTP/HTTPS URLs with default b
+          +rowser.                                                       
+      224 +  * `search_web(query: str, engine: str = "google")`: Performs
+          + web search.                                                  
+      225 +* **Audio (`audio`)**:                                        
+      226 +  * `set_volume(percent: int)`: Clamps volume to 0–100%.      
+      227 +  * `increase_volume(step: int = 5)`: Increments output volume
+          +.                                                             
+      228 +  * `decrease_volume(step: int = 5)`: Decrements output volume
+          +.                                                             
+      229 +  * `mute_volume()` / `unmute_volume()`: Toggles mute state.  
+      230 +* **Media (`media`)**:                                        
+      231 +  * `play_pause()`: Toggles active media playback.            
+      232 +  * `next_track()` / `previous_track()`: Skips tracks via MPRI
+          +S.                                                            
+      233 +* **Files (`files`)**:                                        
+      234 +  * `open_file(path: str)`: Opens existing file with default a
+          +pp.                                                           
+      235 +  * `open_folder(path: str)`: Opens folder in Dolphin file man
+          +ager.                                                         
+      236 +  * `find_files(query: str, search_dir: str = "~")`: Finds mat
+          +ching files.                                                  
+      237 +* **System (`system`)**:                                      
+      238 +  * `take_screenshot()`: Captures desktop with Spectacle / Gri
+          +m.                                                            
+      239 +  * `show_system_info()`: Displays OS, kernel, and memory stat
+          +s.                                                            
+      240 +  * `lock_screen()`: Locks desktop session via `loginctl`.    
+      241 +                                                              
+      242 +---                                                           
+      243 +                                                              
+      244 +## Configuration                                              
+      245 +                                                              
+      246 +Configuration is located at `~/.config/nido/config.toml`:     
+      247 +                                                              
+      248 +```toml                                                       
+      249 +[assistant]                                                   
+      250 +name = "Nido"                                                 
+      251 +language = "fa"                                               
+      252 +                                                              
+      253 +[hotkey]                                                      
+      254 +key = "KEY_F9"                                                
+      255 +device = ""  # Empty for auto-discovery                       
+      256 +                                                              
+      257 +[audio]                                                       
+      258 +device = ""  # Empty for default input                        
+      259 +sample_rate = 16000                                           
+      260 +channels = 1                                                  
+      261 +max_seconds = 30                                              
+      262 +                                                              
+      263 +[ui]                                                          
+      264 +position = "top-right"  # "top-right", "top-left", "bottom-rig
+          +ht", "bottom-left"                                            
+      265 +timeout_ms = 4000                                             
+      266 +compact = false                                               
+      267 +                                                              
+      268 +[stt]                                                         
+      269 +model_dir = "~/.local/share/nido/models/shenava"              
+      270 +threads = 4                                                   
+      271 +                                                              
+      272 +[translation]                                                 
+      273 +model_dir = "~/.local/share/nido/models/translation-ct2"      
+      274 +compute_type = "int8"                                         
+      275 +beam_size = 1                                                 
+      276 +max_tokens = 64                                               
+      277 +                                                              
+      278 +[needle]                                                      
+      279 +max_steps = 8                                                 
+      280 +max_new_tokens = 128                                          
+      281 +                                                              
+      282 +[apps]                                                        
+      283 +browser = "firefox"                                           
+      284 +chrome = "google-chrome"                                      
+      285 +terminal = "konsole"                                          
+      286 +editor = "code"                                               
+      287 +file_manager = "dolphin"                                      
+      288 +files = "dolphin"                                             
+      289 +calculator = "kcalc"                                          
+      290 +settings = "systemsettings"                                   
+      291 +music = "elisa"                                               
+      292 +telegram = "telegram-desktop"                                 
+      293 +discord = "discord"                                           
+      294 +                                                              
+      295 +[system]                                                      
+      296 +auto_start = true                                             
+      297 +allow_shutdown = false                                        
+      298 +allow_reboot = false                                          
+      299 +```                                                           
+      300 +                                                              
+      301 +---                                                           
+      302 +                                                              
+      303 +## Startup Integration                                        
+      304 +                                                              
+      305 +### User Systemd Service                                      
+      306 +                                                              
+      307 +Install and enable Nido to automatically start when your deskt
+          +op session begins:                                            
+      308 +                                                              
+      309 +```bash                                                       
+      310 +python3 scripts/install_autostart.py --type systemd           
+      311 +                                                              
+      312 +systemctl --user enable nido.service                          
+      313 +systemctl --user start nido.service                           
+      314 +```                                                           
+      315 +                                                              
+      316 +### KDE Desktop Autostart                                     
+      317 +                                                              
+      318 +Alternatively, install the `.desktop` autostart launcher:     
+      319 +                                                              
+      320 +```bash                                                       
+      321 +python3 scripts/install_autostart.py --type desktop           
+      322 +```                                                           
+      323 +                                                              
+      324 +---                                                           
+      325 +                                                              
+      326 +## Privacy and Offline Guarantee                              
+      327 +                                                              
+      328 +* **Zero Cloud Network Calls**: Once model assets are download
+          +ed during setup, Nido functions entirely offline with internet
+          + disconnected.                                                
+      329 +* **Telemetry Disabled**:                                     
+      330 +  * `NEEDLE_TELEMETRY=0` is hard-enforced in code.            
+      331 +  * `DO_NOT_TRACK=1` is exported in all processes.            
+      332 +* **Audio Ephemerality**: Microphone input is captured to an i
+          +n-memory buffer during the F9 keypress. Audio data is discarde
+          +d immediately after inference and is never written to disk or 
+          +logged.                                                       
+      333 +* **Structured Logs**: Logs are kept locally in `~/.local/stat
+          +e/nido/nido.log` according to XDG specifications.             
+      334 +                                                              
+      335 +---                                                           
+      336 +                                                              
+      337 +## Project Structure                                          
+      338 +                                                              
+      339 +```text                                                       
+      340 +nido/                                                         
+      341 +├── pyproject.toml              # Packaging and dependency dec
+          +larations                                                     
+      342 +├── README.md                   # Project documentation       
+      343 +├── LICENSE                     # MIT License                 
+      344 +├── .gitignore                                                
+      345 +├── config/                                                   
+      346 +│   └── config.example.toml     # Reference configuration temp
+          +late                                                          
+      347 +├── scripts/                                                  
+      348 +│   ├── setup_models.py         # Automated model downloader  
+      349 +│   ├── convert_translation_model.py # Marian -> CTranslate2 I
+          +NT8 converter                                                 
+      350 +│   └── install_autostart.py    # Systemd / desktop autostart 
+          +installer                                                     
+      351 +├── systemd/                                                  
+      352 +│   └── nido.service            # Systemd user service unit   
+      353 +├── desktop/                                                  
+      354 +│   └── nido.desktop            # XDG desktop autostart entry 
+      355 +├── src/                                                      
+      356 +│   └── nido/                                                 
+      357 +│       ├── __init__.py                                       
+      358 +│       ├── __main__.py                                       
+      359 +│       ├── cli.py              # CLI entry point and subcomma
+          +nds                                                           
+      360 +│       ├── config.py           # TOML configuration loader & 
+          +dataclasses                                                   
+      361 +│       ├── logging.py          # Structured XDG logger       
+      362 +│       ├── events.py           # Pipeline event bus & stages 
+      363 +│       ├── pipeline.py         # Audio -> STT -> Trans -> Nee
+          +dle -> Execution                                              
+      364 +│       ├── audio/                                            
+      365 +│       │   ├── __init__.py                                   
+      366 +│       │   └── recorder.py     # Push-to-talk in-memory 16kHz
+          + recorder                                                     
+      367 +│       ├── hotkey/                                           
+      368 +│       │   ├── __init__.py                                   
+      369 +│       │   ├── base.py         # HotkeyBackend Protocol      
+      370 +│       │   └── evdev_backend.py# Linux evdev F9 press/release
+          + backend                                                      
+      371 +│       ├── stt/                                              
+      372 +│       │   ├── __init__.py                                   
+      373 +│       │   └── shenava.py      # Shenava Koochik sherpa-onnx 
+          ++ Persian ITN                                                 
+      374 +│       ├── translation/                                      
+      375 +│       │   ├── __init__.py                                   
+      376 +│       │   └── marian_ct2.py   # Marian CTranslate2 INT8 + Se
+          +ntencePiece                                                   
+      377 +│       ├── needle/                                           
+      378 +│       │   ├── __init__.py                                   
+      379 +│       │   └── agent.py        # Needle 3 router and tool pla
+          +nner                                                          
+      380 +│       ├── tools/                                            
+      381 +│       │   ├── __init__.py     # Registry builder            
+      382 +│       │   ├── registry.py     # ToolRegistry and safe execut
+          +or                                                            
+      383 +│       │   ├── apps.py         # Whitelisted app launcher/ter
+          +minator                                                       
+      384 +│       │   ├── browser.py      # URL navigation and web searc
+          +h                                                             
+      385 +│       │   ├── audio.py        # Volume control (pactl/amixer
+          +/pamixer)                                                     
+      386 +│       │   ├── media.py        # MPRIS media playback control
+      387 +│       │   ├── files.py        # Safe file / folder opening  
+      388 +│       │   └── system.py       # Screenshot, system info, ses
+          +sion lock                                                     
+      389 +│       ├── models/                                           
+      390 +│       │   ├── __init__.py                                   
+      391 +│       │   └── manager.py      # Download, status, and verifi
+          +cation                                                        
+      392 +│       └── ui/                                               
+      393 +│           ├── __init__.py                                   
+      394 +│           ├── overlay.py      # PySide6 frameless KDE overla
+          +y                                                             
+      395 +│           └── worker.py       # Non-blocking QThread pipelin
+          +e worker                                                      
+      396 +└── tests/                                                    
+      397 +    ├── run_tests.py            # Self-contained test runner  
+      398 +    ├── test_config.py          # Configuration loading tests 
+      399 +    ├── test_tools.py           # Tool whitelist & safety test
+          +s                                                             
+      400 +    ├── test_translation.py     # Translation & entity preserv
+          +ation tests                                                   
+      401 +    ├── test_stt.py             # Persian ITN and number tests
+      402 +    ├── test_audio.py           # Audio resampling & recorder 
+          +tests                                                         
+      403 +    ├── test_hotkey.py          # Hotkey press/release/repeat 
+          +tests                                                         
+      404 +    ├── test_pipeline.py        # End-to-end pipeline orchestr
+          +ation tests                                                   
+      405 +    └── test_cli.py             # CLI command tests           
+      406 +```                                                           
+      407 +                                                              
+      408 +---                                                           
+      409 +                                                              
+      410 +## Testing                                                    
+      411 +                                                              
+      412 +Run the test suite:                                           
+      413 +                                                              
+      414 +```bash                                                       
+      415 +# Run using the built-in self-check test runner:              
+      416 +python3 tests/run_tests.py                                    
+      417 +                                                              
+      418 +# Or run with pytest:                                         
+      419 +pytest tests/ -v                                              
+      420 +```                                                           
+      421 +                                                              
+      422 +---                                                           
+      423 +                                                              
+      424 +## Troubleshooting                                            
+      425 +                                                              
+      426 +### 1. `PermissionError: [Errno 13] Permission denied: '/dev/i
+          +nput/event*'`                                                 
+      427 +Your user account does not have read access to `/dev/input/` d
+          +evices. Run:                                                  
+      428 +```bash                                                       
+      429 +sudo usermod -aG input $USER                                  
+      430 +```                                                           
+      431 +Then log out and log back into your desktop session.          
+      432 +                                                              
+      433 +### 2. No audio captured or microphone silent                 
+      434 +* Check default input device in KDE System Settings -> Audio -
+          +> Recording Devices.                                          
+      435 +* Verify input device in terminal:                            
+      436 +  ```bash                                                     
+      437 +  python3 -c "import sounddevice as sd; print(sd.query_devices
+          +())"                                                          
+      438 +  ```                                                         
+      439 +* Set explicit device index in `~/.config/nido/config.toml` un
+          +der `[audio] device`.                                         
+      440 +                                                              
+      441 +### 3. Models missing error on startup                        
+      442 +Run the automated model setup:                                
+      443 +```bash                                                       
+      444 +nido models setup                                             
+      445 +```                                                           
+      446 +                                                              
+      447 +---                                                           
+      448 +                                                              
+      449 +## Attribution & Credits                                      
+      450 +                                                              
+      451 +* **Shenava Koochik v1.0**: [Reza2kn](https://huggingface.co/R
+          +eza2kn) ([Shenava Koochik sherpa-onnx](https://huggingface.co/
+          +Reza2kn/Shenava-Koochik-v1.0-sherpa-onnx)).                   
+      452 +* **sherpa-onnx**: Next-gen Kaldi project by Daniel Povey & co
+          +ntributors.                                                   
+      453 +* **HPLT Persian-English Translation**: [High Performance Lang
+          +uage Technologies (HPLT)](https://hplt-project.org/).         
+      454 +* **CTranslate2**: OpenNMT project fast inference engine.     
+      455 +* **Needle 3**: [Cactus Compute](https://github.com/Cactus-Com
+          +pute/needle3).                                                
+      456 +                                                              
+      457 +---                                                           
+      458 +                                                              
+      459 +## License                                                    
+      460 +                                                              
+      461 +Nido is licensed under the [MIT License](LICENSE).            
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Agent(Run Nido unit tests)
+  ⎿  Initializing…
+  ⎿  Error: ag/gemini-3.8-flash-high is temporarily unavailable, so auto mode 
+     cannot determine the safety of Agent right now. Wait a moment and then try 
+     this action again. If it keeps failing, continue with other tasks that 
+     don't require this action and come back to it later. Note: reading files, 
+     searching code, and other read-only operations do not require the 
+     classifier and can still be used.
+
+  Thought for 17s, read 1 file (ctrl+o to expand)
+
+● Write(tests/test_cli.py)
+  ⎿  Added 37 lines, removed 26 lines
+       1  """Tests for Nido CLI diagnostic subcommands."""
+       2  
+       3 +import contextlib                                              
+       4 +import io                                                      
+       5 +import sys                                                     
+       6  import pytest
+       7  from nido.cli import main
+       8  
+       9  
+       7 -def test_cli_version(capsys: pytest.CaptureFixture[str]) -> Non
+         -e:                                                             
+       8 -    with pytest.raises(SystemExit) as excinfo:                 
+       9 -        main(["--version"])                                    
+      10 +def test_cli_version() -> None:                                
+      11 +    buf = io.StringIO()                                        
+      12 +    with contextlib.redirect_stdout(buf):                      
+      13 +        with pytest.raises(SystemExit) as excinfo:             
+      14 +            main(["--version"])                                
+      15      assert excinfo.value.code == 0
+      11 -    captured = capsys.readouterr()                             
+      12 -    assert "nido" in captured.out                              
+      16 +    assert "nido" in buf.getvalue()                            
+      17  
+      18  
+      15 -def test_cli_tools_list(capsys: pytest.CaptureFixture[str]) -> 
+         -None:                                                          
+      16 -    code = main(["tools", "list"])                             
+      19 +def test_cli_tools_list() -> None:                             
+      20 +    buf = io.StringIO()                                        
+      21 +    with contextlib.redirect_stdout(buf):                      
+      22 +        code = main(["tools", "list"])                         
+      23      assert code == 0
+      18 -    captured = capsys.readouterr()                             
+      19 -    assert "Registered Tools" in captured.out                  
+      20 -    assert "open_app" in captured.out                          
+      21 -    assert "open_url" in captured.out                          
+      24 +    out = buf.getvalue()                                       
+      25 +    assert "Registered Tools" in out                           
+      26 +    assert "open_app" in out                                   
+      27 +    assert "open_url" in out                                   
+      28  
+      29  
+      24 -def test_cli_models_status(capsys: pytest.CaptureFixture[str]) 
+         --> None:                                                       
+      25 -    # Models status runs cleanly (returns 0 or 1 depending on w
+         -hether models exist)                                           
+      26 -    code = main(["models", "status"])                          
+      30 +def test_cli_models_status() -> None:                          
+      31 +    buf = io.StringIO()                                        
+      32 +    with contextlib.redirect_stdout(buf):                      
+      33 +        code = main(["models", "status"])                      
+      34      assert code in (0, 1)
+      28 -    captured = capsys.readouterr()                             
+      29 -    assert "Nido Offline Models Status" in captured.out        
+      35 +    out = buf.getvalue()                                       
+      36 +    assert "Nido Offline Models Status" in out                 
+      37  
+      38  
+      32 -def test_cli_test_translate(capsys: pytest.CaptureFixture[str])
+         - -> None:                                                      
+      33 -    code = main(["test-translate", "کروم را باز کن"])          
+      39 +def test_cli_test_translate() -> None:                         
+      40 +    buf = io.StringIO()                                        
+      41 +    with contextlib.redirect_stdout(buf):                      
+      42 +        code = main(["test-translate", "کروم را باز کن"])      
+      43      assert code == 0
+      35 -    captured = capsys.readouterr()                             
+      36 -    assert "Persian:" in captured.out                          
+      37 -    assert "Translated:" in captured.out                       
+      44 +    out = buf.getvalue()                                       
+      45 +    assert "Persian:" in out                                   
+      46 +    assert "Translated:" in out                                
+      47  
+      48  
+      40 -def test_cli_test_command(capsys: pytest.CaptureFixture[str]) -
+         -> None:                                                        
+      41 -    code = main(["test-command", "open firefox"])              
+      49 +def test_cli_test_command() -> None:                           
+      50 +    buf = io.StringIO()                                        
+      51 +    with contextlib.redirect_stdout(buf):                      
+      52 +        code = main(["test-command", "open firefox"])          
+      53      assert code == 0
+      43 -    captured = capsys.readouterr()                             
+      44 -    assert "Selected Tools" in captured.out                    
+      45 -    assert "open_app" in captured.out                          
+      54 +    out = buf.getvalue()                                       
+      55 +    assert "Selected Tools" in out                             
+      56 +    assert "open_app" in out                                   
+
+● Write(tests/test_cli.py)
+  ⎿  Added 6 lines, removed 3 lines
+       3  import contextlib
+       4  import io
+       5  import sys
+       6 -import pytest                                                  
+       6  from nido.cli import main
+       7  
+       8  
+       9  def test_cli_version() -> None:
+      10      buf = io.StringIO()
+      11 +    exited = False                                             
+      12      with contextlib.redirect_stdout(buf):
+      13 -        with pytest.raises(SystemExit) as excinfo:             
+      13 +        try:                                                   
+      14              main(["--version"])
+      15 -    assert excinfo.value.code == 0                             
+      15 +        except SystemExit as e:                                
+      16 +            exited = True                                      
+      17 +            assert e.code == 0                                 
+      18 +    assert exited                                              
+      19      assert "nido" in buf.getvalue()
+      20  
+      21  
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(tests/run_tests.py)
+  ⎿  Added 1 line
+      40          ("Audio Processing Tests", tests.test_audio),
+      41          ("Hotkey Push-to-Talk Tests", tests.test_hotkey),
+      42          ("Pipeline Orchestration Tests", tests.test_pipeline),
+      43 +        ("CLI Commands Tests", tests.test_cli),                
+      44      ]
+      45  
+      46      total = 0
+
+  Thought for 34s, ran 1 shell command (ctrl+o to expand)
+
+● Built Nido: a lightweight, fully offline, push-to-talk Persian voice command
+  assistant for KDE Plasma and Linux desktops.
+
+  Architecture & Components
+
+  1. Push-to-Talk Hotkey Subsystem (src/nido/hotkey/)
+     - Protocol: HotkeyBackend(Protocol).
+     - EvdevHotkeyBackend: reads Linux kernel input events directly via
+       /dev/input/ to provide true push-to-talk across both Wayland and X11
+       sessions.
+     - Detects F9 down (1) to start capture, ignores key-repeat events (2),
+       detects release (0) to end capture. Prevents duplicate release triggers.
+     - Fallback MockHotkeyBackend for headless and test environments.
+  2. Audio Capture & Normalization (src/nido/audio/)
+     - AudioRecorder: captures in-memory float32 mono audio at 16,000 Hz.
+     - Linear interpolation resampler for input devices running at 44.1 kHz / 48
+       kHz.
+     - Audio is kept strictly in volatile memory and discarded after inference.
+  3. Persian Speech-to-Text (src/nido/stt/)
+     - Protocol: SpeechRecognizer(Protocol).
+     - ShenavaSherpaRecognizer: loads Reza2kn/Shenava-Koochik-v1.0-sherpa-onnx
+       via sherpa-onnx.OfflineRecognizer (16 kHz, float32, mono, per-feature
+       normalization disabled).
+     - Built-in Persian Inverse Text Normalization (normalize_persian_numbers):
+       normalizes words ("صفر", "ده", "بیست", "سی", "پنجاه", "صد", "سی و پنج")
+       and Persian digits to standard ASCII integers.
+  4. Persian → English Translation (src/nido/translation/)
+     - Protocol: Translator(Protocol).
+     - MarianCT2Translator: loads HPLT/translate-fa-en-v2.0-hplt_opus converted
+       to CTranslate2 INT8 with SentencePiece tokenization. Reuses in-memory
+       instance for greedy low-latency decoding.
+     - Preserves technical entities (Chrome, Firefox, YouTube, Discord, GitHub,
+       VS Code, Python, Docker).
+  5. Needle 3 Command Router (src/nido/needle/)
+     - NeedleCommandRouter: routes English commands to explicit structured tool
+       calls using cactus-needle and registered tools.
+     - Enforces NEEDLE_TELEMETRY=0 and DO_NOT_TRACK=1. Rejects arbitrary shell
+       execution.
+  6. Safe Tool Registry (src/nido/tools/)
+     - apps.py: whitelisted application launcher and process killer (open_app,
+       close_app).
+     - browser.py: URL opener with scheme validation (http://, https://) and web
+       search (open_url, search_web).
+     - audio.py: volume control clamped to 0–100% using pactl, pamixer, or
+       amixer (set_volume, increase_volume, decrease_volume, mute_volume,
+       unmute_volume).
+     - media.py: MPRIS media playback control via playerctl (play_pause,
+       next_track, previous_track).
+     - files.py: safe navigation using xdg-open (open_file, open_folder,
+       find_files).
+     - system.py: desktop utilities (take_screenshot, show_system_info,
+       lock_screen). Destructive actions (shutdown, reboot) disabled by default.
+  7. Pipeline Orchestrator (src/nido/pipeline.py)
+     - Stages: IDLE → LISTENING → TRANSCRIBING → TRANSLATING → THINKING →
+       EXECUTING → DONE / ERROR.
+     - Publishes thread-safe PipelineEvent messages and tracks per-stage
+       latencies.
+  8. PySide6 Visual Overlay (src/nido/ui/)
+     - NidoOverlay: frameless, always-on-top, translucent dark card in top-right
+       screen corner.
+     - PipelineWorker: QThread executing inference off the Qt GUI thread.
+     - Displays heard Persian, translated English, active tool, result, and
+       latency badge. Automatically hides after configurable timeout.
+  9. Model Manager & Setup (src/nido/models/ & scripts/)
+     - ModelManager: downloads and verifies local assets under
+       ~/.local/share/nido/models/.
+     - scripts/convert_translation_model.py: converts Marian models to
+       CTranslate2 INT8.
+     - scripts/install_autostart.py: installs systemd/nido.service and
+       desktop/nido.desktop.
+  10. Configuration & Logging (src/nido/config.py, src/nido/logging.py)
+      - Configuration: ~/.config/nido/config.toml (XDG).
+      - Logging: ~/.local/state/nido/nido.log (XDG). Never logs audio buffers.
+  11. CLI & Diagnostic Suite (src/nido/cli.py)
+      - nido (daemon + overlay)
+      - nido --debug
+      - nido models setup / status / verify
+      - nido tools list
+      - nido test-stt <file.wav>
+      - nido test-translate <persian_text>
+      - nido test-command <english_cmd>
+  12. Verification & Tests (tests/)
+      - tests/test_config.py
+      - tests/test_tools.py
+      - tests/test_translation.py
+      - tests/test_stt.py
+      - tests/test_audio.py
+      - tests/test_hotkey.py
+      - tests/test_pipeline.py
+      - tests/test_cli.py
+      - tests/run_tests.py (self-check test runner)
+
+  Next steps
+
+  1. Add user to input group for evdev global push-to-talk:
+  sudo usermod -aG input $USER
+  2. Download model assets:
+  nido models setup
+  3. Run Nido:
+  nido
+
+✻ Baked for 27m 25s · done 11:41 PM
+
+※ recap: We built Nido, a fully offline Persian voice assistant for KDE Linux, and completed the full implementation and test suite. Run nido models setup to download local models and begin testing. (disable recaps in /config)

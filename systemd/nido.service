@@ -1,0 +1,18 @@
+[Unit]
+Description=Nido Offline Persian Voice Assistant Daemon
+PartOf=graphical-session.target
+After=graphical-session.target pipewire.service pulseaudio.service
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/nido
+Restart=on-failure
+RestartSec=3s
+
+# Offline and privacy environment flags
+Environment=NEEDLE_TELEMETRY=0
+Environment=DO_NOT_TRACK=1
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=graphical-session.target

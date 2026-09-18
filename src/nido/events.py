@@ -1,0 +1,63 @@
+"""Event definitions and event bus for Nido pipeline orchestration."""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from enum import Enum
+from threading import Lock
+from typing import Any, Callable, Dict, List
+
+
+class PipelineStage(str, Enum):
+    IDLE = "idle"
+    LISTENING = "listening"
+    TRANSCRIBING = "transcribing"
+    TRANSLATING = "translating"
+    THINKING = "thinking"
+    EXECUTING = "executing"
+    DONE = "done"
+    ERROR = "error"
+
+
+@dataclass
+class PipelineEvent:
+    stage: PipelineStage
+    message: str
+    data: Dict[str, Any] = field(default_factory=dict)
+    timestamp: float = field(default_factory=time.time)
+
+
+EventListener = Callable[[PipelineEvent], None]
+
+
+class EventBus:
+    """Thread-safe event bus for publishing and subscribing to pipeline events."""
+
+    def __init__(self) -> None:
+        self._listeners: List[EventListener] = []
+        self._lock = Lock()
+
+    def subscribe(self, listener: EventListener) -> None:
+        """Register a callback to receive pipeline events."""
+        with self._lock:
+            if listener not in self._listeners:
+                self._listeners.append(listener)
+
+    def unsubscribe(self, listener: EventListener) -> None:
+        """Unregister an event callback."""
+        with self._lock:
+            if listener in self._listeners:
+                self._listeners.remove(listener)
+
+    def emit(self, event: PipelineEvent) -> None:
+        """Publish an event to all subscribers."""
+        with self._lock:
+            listeners = list(self._listeners)
+
+        for listener in listeners:
+            try:
+                listener(event)
+            except Exception:
+                # Listener exceptions must not disrupt the pipeline
+                pass

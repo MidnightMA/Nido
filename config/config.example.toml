@@ -1,0 +1,63 @@
+# Nido Configuration
+# Location: ~/.config/nido/config.toml
+
+[assistant]
+name = "Nido"
+language = "fa"
+
+[hotkey]
+# Push-to-talk key. Default is F9.
+key = "KEY_F9"
+# Optional evdev device path, e.g. "/dev/input/event3". Empty string enables auto-discovery.
+device = ""
+
+[audio]
+# Optional sounddevice device name or index. Empty string uses default input device.
+device = ""
+sample_rate = 16000
+channels = 1
+max_seconds = 30
+
+[ui]
+# Position on screen: "top-right", "top-left", "bottom-right", "bottom-left"
+position = "top-right"
+# Auto-hide timeout in milliseconds after completion
+timeout_ms = 4000
+# Compact UI mode
+compact = false
+
+[stt]
+# Local directory for Shenava Koochik sherpa-onnx model
+model_dir = "~/.local/share/nido/models/shenava"
+threads = 4
+
+[translation]
+# Local directory for CTranslate2 Marian Persian->English model
+model_dir = "~/.local/share/nido/models/translation-ct2"
+compute_type = "int8"
+beam_size = 1
+max_tokens = 64
+
+[needle]
+max_steps = 8
+max_new_tokens = 128
+
+[apps]
+# Whitelist and aliases for open_app tool
+browser = "firefox"
+chrome = "google-chrome"
+terminal = "konsole"
+editor = "code"
+file_manager = "dolphin"
+files = "dolphin"
+calculator = "kcalc"
+settings = "systemsettings"
+music = "elisa"
+telegram = "telegram-desktop"
+discord = "discord"
+
+[system]
+auto_start = true
+# Dangerous commands disabled by default
+allow_shutdown = false
+allow_reboot = false
