@@ -105,12 +105,14 @@ class MarianCT2Translator(Translator):
             self.model_dir / "spm.src",
             self.model_dir / "spiece.model",
             self.model_dir / "source.model",
+            self.model_dir / "model.fa-en.spm",
         ]
         spm_target_candidates = [
             self.model_dir / "target.spm",
             self.model_dir / "spm.trg",
             self.model_dir / "spiece.model",
             self.model_dir / "target.model",
+            self.model_dir / "model.fa-en.spm",
         ]
 
         spm_source_file = next((p for p in spm_source_candidates if p.is_file()), None)
