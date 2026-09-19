@@ -120,7 +120,7 @@ sudo usermod -aG input $USER
 ### 3. Clone and Setup Environment
 
 ```bash
-git clone https://github.com/mahdiahmadi87/Nido.git
+git clone https://github.com/MidnightMA/Nido.git
 cd Nido
 
 python3 -m venv .venv
