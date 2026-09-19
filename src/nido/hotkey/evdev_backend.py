@@ -23,13 +23,32 @@ from nido.logging import get_logger
 logger = get_logger("nido.hotkey")
 
 
+def check_input_permissions() -> tuple[bool, str]:
+    """Check if /dev/input/event* nodes exist and are readable by the current user."""
+    nodes = glob.glob("/dev/input/event*")
+    if not nodes:
+        return False, "No /dev/input/event* input nodes found."
+    readable = [p for p in nodes if os.access(p, os.R_OK)]
+    if not readable:
+        return (
+            False,
+            "Permission denied on all /dev/input/event* devices. "
+            "Add user to 'input' group: 'sudo usermod -aG input $USER' and log out/in.",
+        )
+    return True, f"Found {len(readable)} readable input device(s)."
+
+
 def find_keyboard_devices(target_keycode: int) -> List[str]:
     """Find all input devices that report keyboard capability and target_keycode."""
     if evdev is None:
         return []
 
     devices: List[str] = []
+    permission_denied_count = 0
+    total_nodes = 0
+
     for path in glob.glob("/dev/input/event*"):
+        total_nodes += 1
         try:
             device = evdev.InputDevice(path)
             capabilities = device.capabilities(verbose=False)
@@ -38,8 +57,18 @@ def find_keyboard_devices(target_keycode: int) -> List[str]:
                 if target_keycode in keys:
                     devices.append(path)
             device.close()
-        except (PermissionError, OSError):
+        except PermissionError:
+            permission_denied_count += 1
+        except OSError:
             continue
+
+    if permission_denied_count > 0 and not devices:
+        logger.warning(
+            f"Permission denied accessing {permission_denied_count}/{total_nodes} input devices. "
+            "Ensure your user is in the 'input' group: 'sudo usermod -aG input $USER' "
+            "and restart your session/logout."
+        )
+
     return devices
 
 

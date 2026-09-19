@@ -291,6 +291,16 @@ def run_daemon(config: Config, debug: bool = False) -> int:
             logger.error(f"Error on hotkey release: {e}")
 
     # Start hotkey listener
+    from nido.hotkey.evdev_backend import check_input_permissions
+    has_perm, perm_msg = check_input_permissions()
+    if not has_perm:
+        print("!" * 60)
+        print(f"Warning: {perm_msg}")
+        print("Push-to-talk (F9) requires access to /dev/input/event*.")
+        print("Run: sudo usermod -aG input $USER")
+        print("Note: You must log out and log back in for the group to activate.")
+        print("!" * 60)
+
     hotkey_backend: object
     try:
         hotkey_backend = EvdevHotkeyBackend(

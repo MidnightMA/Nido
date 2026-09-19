@@ -9,6 +9,31 @@ import sys
 from pathlib import Path
 
 
+def find_nido_executable(repo_root: Path) -> str:
+    """Find the absolute path to the nido executable."""
+    # 1. Check current python environment (e.g. .venv/bin/nido)
+    curr_nido = Path(sys.executable).parent / "nido"
+    if curr_nido.is_file() and os.access(curr_nido, os.X_OK):
+        return str(curr_nido)
+
+    # 2. Check repo .venv
+    venv_nido = repo_root / ".venv" / "bin" / "nido"
+    if venv_nido.is_file() and os.access(venv_nido, os.X_OK):
+        return str(venv_nido)
+
+    # 3. Check ~/.local/bin/nido
+    local_nido = Path.home() / ".local" / "bin" / "nido"
+    if local_nido.is_file() and os.access(local_nido, os.X_OK):
+        return str(local_nido)
+
+    # 4. Check PATH
+    which_nido = shutil.which("nido")
+    if which_nido:
+        return which_nido
+
+    return str(Path.home() / ".local" / "bin" / "nido")
+
+
 def install_systemd(repo_root: Path) -> bool:
     systemd_user_dir = Path.home() / ".config" / "systemd" / "user"
     systemd_user_dir.mkdir(parents=True, exist_ok=True)
@@ -20,15 +45,21 @@ def install_systemd(repo_root: Path) -> bool:
         print(f"Error: {src_service} not found.", file=sys.stderr)
         return False
 
-    shutil.copy(src_service, dest_service)
+    nido_exec = find_nido_executable(repo_root)
+    print(f"Configuring systemd service with executable: {nido_exec}")
+
+    content = src_service.read_text(encoding="utf-8")
+    content = content.replace("%h/.local/bin/nido", nido_exec)
+
+    dest_service.write_text(content, encoding="utf-8")
     print(f"Installed systemd user service: {dest_service}")
 
     # Reload systemd user daemon
     if shutil.which("systemctl"):
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
-        print("Run the following to enable and start Nido on login:")
-        print("  systemctl --user enable nido.service")
-        print("  systemctl --user start nido.service")
+        print("Run the following to restart Nido service:")
+        print("  systemctl --user restart nido.service")
+        print("  systemctl --user status nido.service")
     return True
 
 
@@ -43,7 +74,11 @@ def install_desktop_autostart(repo_root: Path) -> bool:
         print(f"Error: {src_desktop} not found.", file=sys.stderr)
         return False
 
-    shutil.copy(src_desktop, dest_desktop)
+    nido_exec = find_nido_executable(repo_root)
+    content = src_desktop.read_text(encoding="utf-8")
+    content = content.replace("Exec=nido", f"Exec={nido_exec}")
+
+    dest_desktop.write_text(content, encoding="utf-8")
     print(f"Installed XDG/KDE autostart desktop entry: {dest_desktop}")
     return True
 
