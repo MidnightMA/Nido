@@ -245,6 +245,29 @@ class NidoOverlay(QWidget):
         elif stage == PipelineStage.THINKING:
             self.status_badge.setText("THINKING...")
             self.status_badge.setStyleSheet("background-color: #F59E0B; color: white;")
+        elif stage == PipelineStage.OBSERVING:
+            self.status_badge.setText("OBSERVING...")
+            self.status_badge.setStyleSheet("background-color: #0284C7; color: white;")
+            if "step" in data and "max_steps" in data:
+                self.action_header.show()
+                self.action_label.setText(f"Step {data['step']}/{data['max_steps']}: Observing desktop...")
+                self.action_label.show()
+        elif stage == PipelineStage.PLANNING:
+            self.status_badge.setText("PLANNING...")
+            self.status_badge.setStyleSheet("background-color: #8B5CF6; color: white;")
+            app_str = data.get("active_app", "")
+            if app_str:
+                self.action_header.show()
+                self.action_label.setText(f"Active app: {app_str}")
+                self.action_label.show()
+        elif stage == PipelineStage.INTERACTING:
+            self.status_badge.setText("INTERACTING...")
+            self.status_badge.setStyleSheet("background-color: #10B981; color: white;")
+            step_str = f"Step {data.get('step', 1)}: " if "step" in data else ""
+            target = data.get("target_name") or data.get("action", "")
+            self.action_header.show()
+            self.action_label.setText(f"{step_str}{target}")
+            self.action_label.show()
         elif stage == PipelineStage.EXECUTING:
             self.status_badge.setText("EXECUTING...")
             self.status_badge.setStyleSheet("background-color: #10B981; color: white;")

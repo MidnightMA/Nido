@@ -125,6 +125,9 @@ def cmd_test_translate(config: Config, persian_text: str) -> int:
             beam_size=config.translation.beam_size,
             max_tokens=config.translation.max_tokens,
         )
+        if not translator.is_loaded:
+            print("Note: Translation model not loaded; using mock translator.")
+            translator = MockTranslator()
     else:
         print("Note: Translation model not installed; using mock translator.")
         translator = MockTranslator()
@@ -161,6 +164,116 @@ def cmd_test_command(config: Config, command: str) -> int:
         print(f"  [{status}] {c.tool_name} -> {res.get('message', res.get('error', ''))}")
 
     return 0
+
+
+def cmd_accessibility_status(config: Config) -> int:
+    """Print accessibility system status and active desktop environment."""
+    from nido.accessibility.atspi import AtspiBackend
+    from nido.desktop.input import detect_input_backend
+
+    backend = AtspiBackend()
+    input_b = detect_input_backend(config.desktop.input_backend)
+    available = backend.is_available()
+
+    print("Nido Desktop Accessibility Status:")
+    print("-" * 50)
+    print(f"AT-SPI2 Available:     {'✓ YES' if available else '✗ NO (Accessibility bus unreachable)'}")
+    snapshot = backend.get_desktop_snapshot(max_elements=10)
+    print(f"Session Type:          {snapshot.session_type}")
+    print(f"Desktop Environment:   {snapshot.desktop_name}")
+    print(f"Active Application:    {snapshot.active_application or 'None'}")
+    print(f"Active Window:         {snapshot.active_window or 'None'}")
+    print(f"Input Backend:         {type(input_b).__name__}")
+    print("-" * 50)
+    if not available:
+        print("To enable AT-SPI2 on Ubuntu/Kubuntu:")
+        print("  sudo apt install at-spi2-core libatk-adaptor")
+        print("  gsettings set org.gnome.desktop.interface toolkit-accessibility true")
+    return 0 if available else 1
+
+
+def cmd_accessibility_tree(config: Config) -> int:
+    """Print the accessible element tree of the currently active window."""
+    from nido.accessibility.atspi import AtspiBackend
+    from nido.accessibility.snapshot import format_snapshot_for_prompt
+
+    backend = AtspiBackend()
+    if not backend.is_available():
+        print("Error: AT-SPI2 accessibility subsystem is not available.", file=sys.stderr)
+        return 1
+
+    snapshot = backend.get_desktop_snapshot(
+        max_elements=config.desktop.max_elements,
+        max_depth=config.desktop.max_depth,
+    )
+    print(format_snapshot_for_prompt(snapshot))
+    return 0
+
+
+def cmd_accessibility_inspect(config: Config) -> int:
+    """Inspect detailed properties of accessible elements in the active window."""
+    from nido.accessibility.atspi import AtspiBackend
+
+    backend = AtspiBackend()
+    if not backend.is_available():
+        print("Error: AT-SPI2 accessibility subsystem is not available.", file=sys.stderr)
+        return 1
+
+    snapshot = backend.get_desktop_snapshot(max_elements=50)
+    print(f"Inspecting active window: '{snapshot.active_window}' (App: {snapshot.active_application})")
+    print(f"Total elements: {len(snapshot.elements)}")
+    print("=" * 60)
+    for el in snapshot.elements:
+        print(f"[{el.id}] Role: {el.role:<15} Name: \"{el.name}\"")
+        if el.description:
+            print(f"     Description: {el.description}")
+        if el.value:
+            print(f"     Value:       {el.value}")
+        if el.states:
+            print(f"     States:      {', '.join(el.states)}")
+        if el.actions:
+            print(f"     Actions:     {', '.join(el.actions)}")
+        if el.bounds:
+            print(f"     Bounds:      x={el.bounds[0]}, y={el.bounds[1]}, w={el.bounds[2]}, h={el.bounds[3]}")
+        print()
+    return 0
+
+
+def cmd_test_desktop(config: Config, command: str) -> int:
+    """Execute a desktop interaction goal directly, bypassing STT and translation."""
+    from nido.accessibility.atspi import AtspiBackend
+    from nido.desktop.agent import DesktopAgent
+    from nido.desktop.input import detect_input_backend
+
+    backend = AtspiBackend()
+    input_b = detect_input_backend(config.desktop.input_backend)
+    registry = build_default_registry(config)
+    router = NeedleCommandRouter(
+        registry=registry,
+        max_steps=config.needle.max_steps,
+        max_new_tokens=config.needle.max_new_tokens,
+    )
+    agent = DesktopAgent(
+        config=config.desktop,
+        router=router,
+        accessibility=backend,
+        input_backend=input_b,
+        registry=registry,
+    )
+
+    print(f"Testing desktop interaction for goal: '{command}'")
+    print("=" * 60)
+    res = agent.execute_goal(command)
+    print("=" * 60)
+    status_str = "✓ SUCCESS" if res.success else "✗ FAILED"
+    print(f"Outcome: {status_str} in {res.steps} step(s)")
+    print(f"Message: {res.message}")
+    if res.history:
+        print("\nAction History:")
+        for h in res.history:
+            s_mark = "✓" if h.get("success") else "✗"
+            print(f"  Step {h['step']}: [{s_mark}] {h['action']}({h.get('arguments')}) -> {h.get('message') or h.get('error')}")
+    return 0 if res.success else 1
 
 
 def run_daemon(config: Config, debug: bool = False) -> int:
@@ -360,6 +473,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     tools_sub = tools_p.add_subparsers(dest="tools_action", required=True)
     tools_sub.add_parser("list", help="List registered tools and schemas.")
 
+    # accessibility subcommands
+    access_p = subparsers.add_parser("accessibility", help="Accessibility inspection and diagnostics.")
+    access_sub = access_p.add_subparsers(dest="access_action", required=True)
+    access_sub.add_parser("status", help="Check AT-SPI2 and desktop accessibility status.")
+    access_sub.add_parser("tree", help="Print accessible tree of active window.")
+    access_sub.add_parser("inspect", help="Inspect detailed element properties in active window.")
+
     # standalone diagnostic commands
     stt_p = subparsers.add_parser("test-stt", help="Test Persian STT on a WAV file.")
     stt_p.add_argument("file", type=str, help="Path to input audio file.")
@@ -369,6 +489,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     cmd_p = subparsers.add_parser("test-command", help="Test Needle tool routing for a command.")
     cmd_p.add_argument("command", type=str, help="English command to route.")
+
+    desk_p = subparsers.add_parser("test-desktop", help="Test multi-step desktop agent interaction.")
+    desk_p.add_argument("goal", type=str, help="Desktop interaction goal (e.g. 'open Kate and write hello').")
 
     args = parser.parse_args(argv)
 
@@ -387,6 +510,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         if args.tools_action == "list":
             return cmd_tools_list(config)
 
+    elif args.subcommand == "accessibility":
+        if args.access_action == "status":
+            return cmd_accessibility_status(config)
+        elif args.access_action == "tree":
+            return cmd_accessibility_tree(config)
+        elif args.access_action == "inspect":
+            return cmd_accessibility_inspect(config)
+
     elif args.subcommand == "test-stt":
         return cmd_test_stt(config, args.file)
 
@@ -395,6 +526,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     elif args.subcommand == "test-command":
         return cmd_test_command(config, args.command)
+
+    elif args.subcommand == "test-desktop":
+        return cmd_test_desktop(config, args.goal)
 
     else:
         # Default: run push-to-talk daemon

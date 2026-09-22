@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from typing import Any, Dict, Optional
@@ -53,6 +54,11 @@ class AppTools:
             }
 
         try:
+            # Ensure accessibility is enabled for launched Qt and GTK applications
+            env = os.environ.copy()
+            env["QT_LINUX_ACCESSIBILITY_ALWAYS_ON"] = "1"
+            env["QT_ACCESSIBILITY"] = "1"
+
             # Launch detached subprocess with shell=False
             subprocess.Popen(
                 [executable],
@@ -60,6 +66,7 @@ class AppTools:
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
                 shell=False,
+                env=env,
             )
             return {
                 "success": True,

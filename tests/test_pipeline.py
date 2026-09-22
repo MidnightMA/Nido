@@ -139,3 +139,71 @@ def test_pipeline_tool_failure_does_not_crash() -> None:
     assert len(result.executed_results) == 1
     assert result.executed_results[0]["success"] is False
     assert "Subprocess failed to launch" in result.executed_results[0]["error"]
+
+
+def test_pipeline_desktop_mode_happy_path() -> None:
+    from nido.accessibility.models import DesktopSnapshot, UIElement
+    from tests.test_desktop_agent import MockAccessibilityBackend
+    from nido.desktop.agent import DesktopAgent
+    from nido.desktop.input import MockInputBackend
+
+    config = Config()
+    config.desktop.enabled = True
+    config.desktop.settle_delay_ms = 0
+
+    class DesktopCommandTranslator(MockTranslator):
+        def translate(self, text: str) -> str:
+            return "open Kate and write hello"
+
+    registry = ToolRegistry()
+    router = NeedleCommandRouter(registry=registry)
+    event_bus = EventBus()
+
+    recorded_stages = []
+    event_bus.subscribe(lambda ev: recorded_stages.append(ev.stage))
+
+    snap = DesktopSnapshot(
+        active_application="Kate",
+        active_window="Untitled — Kate",
+        elements=[
+            UIElement(id="e1", role="text field", name="Editor", states=["editable"], focused=True),
+        ],
+    )
+    acc_backend = MockAccessibilityBackend(snapshots=[snap])
+    desktop_agent = DesktopAgent(
+        config=config.desktop,
+        router=router,
+        accessibility=acc_backend,
+        input_backend=MockInputBackend(),
+        registry=registry,
+        event_bus=event_bus,
+    )
+
+    pipeline = AssistantPipeline(
+        config=config,
+        stt=MockSpeechRecognizer("کیت رو باز کن و بنویس سلام"),
+        translator=DesktopCommandTranslator(),
+        router=router,
+        registry=registry,
+        event_bus=event_bus,
+        desktop_agent=desktop_agent,
+    )
+
+    audio = np.zeros(16000, dtype=np.float32)
+    result = pipeline.process_audio(audio)
+
+    assert result.success is True
+    assert result.heard_persian == "کیت رو باز کن و بنویس سلام"
+    assert result.translated_english == "open Kate and write hello"
+    assert len(acc_backend.texts_set) == 1
+    # Preserves exact Persian text 'سلام' from original speech rather than translating to 'hello'
+    assert acc_backend.texts_set[0] == ("e1", "سلام")
+
+    # Verify stage lifecycle for desktop agent
+    assert PipelineStage.TRANSCRIBING in recorded_stages
+    assert PipelineStage.TRANSLATING in recorded_stages
+    assert PipelineStage.OBSERVING in recorded_stages
+    assert PipelineStage.PLANNING in recorded_stages
+    assert PipelineStage.INTERACTING in recorded_stages
+    assert PipelineStage.DONE in recorded_stages
+

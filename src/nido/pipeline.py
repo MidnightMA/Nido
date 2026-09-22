@@ -8,7 +8,10 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from nido.accessibility.atspi import AtspiBackend
 from nido.config import Config
+from nido.desktop.agent import DesktopAgent
+from nido.desktop.input import detect_input_backend
 from nido.events import EventBus, PipelineEvent, PipelineStage
 from nido.logging import get_logger
 from nido.needle.agent import NeedleCommandRouter, PlannedToolCall
@@ -17,6 +20,39 @@ from nido.tools.registry import ToolRegistry
 from nido.translation.marian_ct2 import Translator
 
 logger = get_logger("nido.pipeline")
+
+
+def is_desktop_command(english_cmd: str, persian_text: str = "") -> bool:
+    """Determine if a command requires interactive desktop accessibility interaction."""
+    cmd_lower = english_cmd.lower()
+
+    # Fast check: Pure static commands
+    pure_static_keywords = [
+        "set volume", "increase volume", "decrease volume", "volume up", "volume down",
+        "mute", "unmute", "play", "pause", "next track", "previous track",
+        "lock screen", "lock desktop", "show system info", "take screenshot",
+        "open url", "search web", "search google"
+    ]
+    for static_kw in pure_static_keywords:
+        if static_kw in cmd_lower and not any(w in cmd_lower for w in ["write", "type", "click", "select", "and"]):
+            return False
+
+    # Interactive GUI keywords
+    gui_indicators = [
+        "write", "type", "click", "press", "select", "enter",
+        "calculate", "new tab", "navigate", "dialog", "button",
+        "downloads", "display settings"
+    ]
+    if any(ind in cmd_lower for ind in gui_indicators):
+        return True
+
+    # Persian indicators
+    if persian_text:
+        fa_indicators = ["بنویس", "تایپ", "کلیک", "فشار", "انتخاب", "حساب کن"]
+        if any(ind in persian_text for ind in fa_indicators):
+            return True
+
+    return False
 
 
 @dataclass
@@ -41,6 +77,7 @@ class AssistantPipeline:
         router: NeedleCommandRouter,
         registry: ToolRegistry,
         event_bus: Optional[EventBus] = None,
+        desktop_agent: Optional[DesktopAgent] = None,
     ) -> None:
         self.config = config
         self.stt = stt
@@ -49,6 +86,19 @@ class AssistantPipeline:
         self.registry = registry
         self.event_bus = event_bus or EventBus()
         self.current_stage = PipelineStage.IDLE
+
+        self.desktop_agent = desktop_agent
+        if self.desktop_agent is None and self.config.desktop.enabled:
+            backend = AtspiBackend()
+            input_b = detect_input_backend(self.config.desktop.input_backend)
+            self.desktop_agent = DesktopAgent(
+                config=self.config.desktop,
+                router=self.router,
+                accessibility=backend,
+                input_backend=input_b,
+                registry=self.registry,
+                event_bus=self.event_bus,
+            )
 
     def _emit(self, stage: PipelineStage, message: str, data: Optional[Dict[str, Any]] = None) -> None:
         self.current_stage = stage
@@ -148,7 +198,39 @@ class AssistantPipeline:
             },
         )
 
-        # 4. Needle Tool Routing Stage
+        # 4. Desktop Agent Mode for Interactive GUI Tasks
+        if self.config.desktop.enabled and self.desktop_agent and is_desktop_command(english_cmd, persian_text):
+            t_desk_start = time.time()
+            desktop_res = self.desktop_agent.execute_goal(
+                translated_command=english_cmd,
+                original_persian=persian_text,
+            )
+            timings["desktop_agent"] = round(time.time() - t_desk_start, 3)
+            timings["total"] = round(time.time() - start_total, 3)
+
+            stage = PipelineStage.DONE if desktop_res.success else PipelineStage.ERROR
+            self._emit(
+                stage,
+                desktop_res.message,
+                {
+                    "persian_text": persian_text,
+                    "english_cmd": english_cmd,
+                    "executed_results": desktop_res.history,
+                    "timings": timings,
+                    "error": desktop_res.error,
+                },
+            )
+            return PipelineResult(
+                success=desktop_res.success,
+                heard_persian=persian_text,
+                translated_english=english_cmd,
+                planned_tools=[],
+                executed_results=desktop_res.history,
+                timings=timings,
+                error=desktop_res.error,
+            )
+
+        # 5. Needle Static Tool Routing Stage
         self._emit(PipelineStage.THINKING, "Understanding command and selecting tools...")
         t_needle_start = time.time()
         try:

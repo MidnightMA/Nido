@@ -100,8 +100,9 @@ Nido transcribes the Persian utterance locally, translates it to a concise Engli
 Ensure system audio utilities and development headers are installed:
 
 ```bash
-# Ubuntu / Debian / KDE Neon
-sudo apt install python3-pip python3-venv libasound2-dev pulseaudio-utils playerctl spectacle
+# Ubuntu / Debian / KDE Neon / Kubuntu
+sudo apt install python3-pip python3-venv libasound2-dev pulseaudio-utils playerctl spectacle \
+    python3-gi gir1.2-atspi-2.0 at-spi2-core libatk-adaptor wtype
 
 # Arch Linux / Manjaro
 sudo pacman -S python python-pip pipewire-pulse playerctl spectacle
@@ -173,21 +174,64 @@ nido --config ~/.config/nido/config.toml
 
 ---
 
+## Accessibility-Driven Desktop Controller
+
+Nido includes a general desktop interaction controller for **KDE Plasma 6** and Linux desktops (Wayland & X11). It can execute multi-step interactive GUI tasks (clicking buttons, entering text, selecting items, navigating menus, switching windows, and scrolling) using **Linux AT-SPI accessibility information**.
+
+### Core Principles
+
+* **Accessibility-First & OCR-Free**: Nido observes the desktop via native AT-SPI metadata exposed by applications and KDE Plasma. **No OCR, no screenshots, and no vision models are used for UI perception.**
+* **Dynamic Action Space**: At each UI step, Nido builds ephemeral target IDs (`[e1]`, `[e2]`, ...) corresponding only to currently visible, actionable elements.
+* **Stale Element Protection**: If the UI changes before a requested action is executed, stale element references are rejected immediately (`stale_ui_element`), prompting a fresh observation instead of misclicking.
+* **Exact User Text Preservation**: When typing text (e.g. *"نوت را باز کن و بنویس سلام دنیا"*), Nido preserves the exact literal Persian text payload without translating it into English.
+* **Hybrid Execution**: Simple commands (volume, mute, lock screen) remain fast static tools, while interactive GUI requests branch into the iterative desktop agent loop.
+* **Honest Detection**: If an application does not expose accessible controls, Nido reports `Accessibility unavailable for this window` rather than hallucinating actions.
+
+### Architecture Loop
+
+```text
+Goal ("Open Kate and write hello")
+  ↓
+Observe Desktop (AT-SPI2)
+  ↓
+Build Compact State & Dynamic Action Space ([e1] button "New", [e2] text area "Editor")
+  ↓
+Model Decision (e.g. set_ui_text(element_id="e2", text="hello"))
+  ↓
+Stale Element Validation & Execution (AT-SPI EditableText / Action)
+  ↓
+Settle & Re-Observe
+  ↓
+Done / Next Step
+```
+
+---
+
 ## Standalone Diagnostic Commands
 
 Nido provides diagnostic commands to test each pipeline layer independently:
 
 ```bash
-# 1. Test Persian Speech-to-Text on a WAV file
+# 1. Desktop Accessibility Diagnostics
+nido accessibility status       # Check AT-SPI2 bus, session (Wayland/X11), and active window
+nido accessibility tree         # Print accessible element tree of active window
+nido accessibility inspect      # Inspect detailed element roles, bounds, and actions
+
+# 2. Test Multi-Step Desktop Agent directly (bypassing STT/mic)
+nido test-desktop "open Kate and write hello"
+nido test-desktop "open kcalc"
+nido test-desktop "go to Downloads"
+
+# 3. Test Persian Speech-to-Text on a WAV file
 nido test-stt sample.wav
 
-# 2. Test Persian -> English translation
+# 4. Test Persian -> English translation
 nido test-translate "صدا رو بذار روی سی درصد"
 
-# 3. Test Needle tool routing and execution
+# 5. Test Needle tool routing and execution
 nido test-command "open firefox and set volume to 50"
 
-# 4. List all registered tools and their argument schemas
+# 6. List all registered tools and their argument schemas
 nido tools list
 ```
 
@@ -277,6 +321,19 @@ max_tokens = 64
 [needle]
 max_steps = 8
 max_new_tokens = 128
+
+[desktop]
+enabled = true
+max_steps = 24
+max_elements = 120
+max_depth = 32
+settle_delay_ms = 120
+action_timeout_ms = 2000
+snapshot_timeout_ms = 1500
+include_invisible = false
+include_offscreen = false
+accessibility_backend = "auto"
+input_backend = "auto"
 
 [apps]
 browser = "firefox"

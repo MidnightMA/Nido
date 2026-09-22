@@ -24,7 +24,15 @@ def open_url(url: str) -> Dict[str, Any]:
         url: The web URL to open. Must begin with http:// or https://.
     """
     clean_url = url.strip()
-    if not clean_url.startswith(("http://", "https://")):
+    parsed_initial = urllib.parse.urlparse(clean_url)
+
+    if parsed_initial.scheme:
+        if parsed_initial.scheme not in ("http", "https"):
+            return {
+                "success": False,
+                "error": f"Invalid or disallowed URL scheme: '{url}'. Only http/https supported.",
+            }
+    else:
         clean_url = f"https://{clean_url}"
 
     parsed = urllib.parse.urlparse(clean_url)

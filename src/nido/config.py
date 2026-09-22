@@ -61,6 +61,21 @@ class NeedleConfig:
 
 
 @dataclass
+class DesktopConfig:
+    enabled: bool = True
+    max_steps: int = 24
+    max_elements: int = 120
+    max_depth: int = 32
+    settle_delay_ms: int = 120
+    action_timeout_ms: int = 2000
+    snapshot_timeout_ms: int = 1500
+    include_invisible: bool = False
+    include_offscreen: bool = False
+    accessibility_backend: str = "auto"
+    input_backend: str = "auto"
+
+
+@dataclass
 class SystemConfig:
     auto_start: bool = True
     allow_shutdown: bool = False
@@ -92,6 +107,7 @@ class Config:
     translation: TranslationConfig = field(default_factory=TranslationConfig)
     needle: NeedleConfig = field(default_factory=NeedleConfig)
     apps: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_APPS))
+    desktop: DesktopConfig = field(default_factory=DesktopConfig)
     system: SystemConfig = field(default_factory=SystemConfig)
 
 
@@ -179,6 +195,22 @@ def load_config(config_path: str | Path | None = None) -> Config:
         for k, v in data["apps"].items():
             if isinstance(k, str) and isinstance(v, str):
                 config.apps[k.lower()] = v
+
+    if "desktop" in data and isinstance(data["desktop"], dict):
+        d = data["desktop"]
+        config.desktop = DesktopConfig(
+            enabled=bool(d.get("enabled", config.desktop.enabled)),
+            max_steps=int(d.get("max_steps", config.desktop.max_steps)),
+            max_elements=int(d.get("max_elements", config.desktop.max_elements)),
+            max_depth=int(d.get("max_depth", config.desktop.max_depth)),
+            settle_delay_ms=int(d.get("settle_delay_ms", config.desktop.settle_delay_ms)),
+            action_timeout_ms=int(d.get("action_timeout_ms", config.desktop.action_timeout_ms)),
+            snapshot_timeout_ms=int(d.get("snapshot_timeout_ms", config.desktop.snapshot_timeout_ms)),
+            include_invisible=bool(d.get("include_invisible", config.desktop.include_invisible)),
+            include_offscreen=bool(d.get("include_offscreen", config.desktop.include_offscreen)),
+            accessibility_backend=str(d.get("accessibility_backend", config.desktop.accessibility_backend)),
+            input_backend=str(d.get("input_backend", config.desktop.input_backend)),
+        )
 
     if "system" in data and isinstance(data["system"], dict):
         sys_cfg = data["system"]
