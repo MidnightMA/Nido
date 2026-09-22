@@ -1,4 +1,4 @@
-"""Unit tests for DesktopAgent loop, text preservation, and recovery."""
+"""Unit tests for unified Laya-driven DesktopAgent loop, text preservation, and recovery."""
 
 from typing import List, Optional
 import pytest
@@ -7,8 +7,9 @@ from nido.accessibility.base import AccessibilityBackend
 from nido.accessibility.models import ActionResult, DesktopSnapshot, UIElement
 from nido.config import DesktopConfig
 from nido.desktop.agent import DesktopAgent, DesktopAgentResult
+from nido.desktop.candidates import ActionCandidate, CandidateBuilder
 from nido.desktop.input import MockInputBackend
-from nido.needle.agent import NeedleCommandRouter
+from nido.laya.agent import ActionDecision, MockLayaAgent
 from nido.tools.registry import ToolRegistry
 
 
@@ -70,17 +71,17 @@ def test_desktop_agent_happy_path() -> None:
     backend = MockAccessibilityBackend(snapshots=[snap1])
     input_b = MockInputBackend()
     registry = ToolRegistry()
-    router = NeedleCommandRouter(registry=registry)
+    laya = MockLayaAgent()
 
     agent = DesktopAgent(
         config=DesktopConfig(max_steps=5, settle_delay_ms=0),
-        router=router,
+        laya_agent=laya,
         accessibility=backend,
         input_backend=input_b,
         registry=registry,
     )
 
-    result = agent.execute_goal("open Kate and write hello")
+    result = agent.execute_goal("کیت را باز کن و بنویس hello")
 
     assert result.success is True
     assert len(backend.texts_set) == 1
@@ -100,20 +101,17 @@ def test_desktop_agent_persian_literal_text_preservation() -> None:
     backend = MockAccessibilityBackend(snapshots=[snap1])
     input_b = MockInputBackend()
     registry = ToolRegistry()
-    router = NeedleCommandRouter(registry=registry)
+    laya = MockLayaAgent()
 
     agent = DesktopAgent(
         config=DesktopConfig(max_steps=5, settle_delay_ms=0),
-        router=router,
+        laya_agent=laya,
         accessibility=backend,
         input_backend=input_b,
         registry=registry,
     )
 
-    # User originally said: نوت را باز کن و بنویس سلام دنیا
-    # Translated command might be: Open Notes and write this Persian sentence
     result = agent.execute_goal(
-        translated_command="Open Notes and write this Persian sentence",
         original_persian="نوت را باز کن و بنویس سلام دنیا",
     )
 
@@ -135,17 +133,17 @@ def test_desktop_agent_navigation_click() -> None:
     backend = MockAccessibilityBackend(snapshots=[snap1])
     input_b = MockInputBackend()
     registry = ToolRegistry()
-    router = NeedleCommandRouter(registry=registry)
+    laya = MockLayaAgent()
 
     agent = DesktopAgent(
         config=DesktopConfig(max_steps=5, settle_delay_ms=0),
-        router=router,
+        laya_agent=laya,
         accessibility=backend,
         input_backend=input_b,
         registry=registry,
     )
 
-    result = agent.execute_goal("go to Downloads")
+    result = agent.execute_goal("برو به Downloads")
     assert result.success is True
     assert ("e2", "click") in backend.actions_performed
 
@@ -160,17 +158,17 @@ def test_desktop_agent_unsupported_accessibility_detection() -> None:
     backend = MockAccessibilityBackend(snapshots=[inaccessible_snap])
     input_b = MockInputBackend()
     registry = ToolRegistry()
-    router = NeedleCommandRouter(registry=registry)
+    laya = MockLayaAgent()
 
     agent = DesktopAgent(
         config=DesktopConfig(max_steps=5, settle_delay_ms=0),
-        router=router,
+        laya_agent=laya,
         accessibility=backend,
         input_backend=input_b,
         registry=registry,
     )
 
-    result = agent.execute_goal("click Login")
+    result = agent.execute_goal("روی دکمه کلیک کن")
     assert result.success is False
     assert result.error == "unsupported_accessibility"
     assert "Accessibility unavailable for window" in result.message
@@ -181,53 +179,23 @@ def test_desktop_agent_unavailable_subsystem() -> None:
     backend._available = False
     input_b = MockInputBackend()
     registry = ToolRegistry()
-    router = NeedleCommandRouter(registry=registry)
+    laya = MockLayaAgent()
 
     agent = DesktopAgent(
         config=DesktopConfig(max_steps=5, settle_delay_ms=0),
-        router=router,
+        laya_agent=laya,
         accessibility=backend,
         input_backend=input_b,
         registry=registry,
     )
 
-    result = agent.execute_goal("open Kate")
+    result = agent.execute_goal("کیت را باز کن")
     assert result.success is False
     assert result.error == "accessibility_unavailable"
 
 
-def test_desktop_agent_calculator_calculation() -> None:
-    # Setup calculator window
-    snap = DesktopSnapshot(
-        active_application="kcalc",
-        active_window="KCalc",
-        elements=[
-            UIElement(id="e1", role="text field", name="Display", states=["editable"], focused=True),
-            UIElement(id="e2", role="button", name="Equal", actions=["click"]),
-        ],
-    )
-    backend = MockAccessibilityBackend(snapshots=[snap])
-    input_b = MockInputBackend()
-    registry = ToolRegistry()
-    router = NeedleCommandRouter(registry=registry)
-
-    agent = DesktopAgent(
-        config=DesktopConfig(max_steps=5, settle_delay_ms=0),
-        router=router,
-        accessibility=backend,
-        input_backend=input_b,
-        registry=registry,
-    )
-
-    result = agent.execute_goal("calculate 123 times 456")
-    assert result.success is True
-    assert len(backend.texts_set) == 1
-    assert backend.texts_set[0] == ("e1", "123 * 456")
-
-
 def test_desktop_agent_stale_element_recovery() -> None:
-    # First snapshot returns an element that will be rejected as stale,
-    # then second snapshot updates and agent successfully acts.
+    # First snapshot contains an element that gets removed in second snapshot
     snap1 = DesktopSnapshot(
         active_application="Kate",
         active_window="Untitled — Kate",
@@ -243,35 +211,112 @@ def test_desktop_agent_stale_element_recovery() -> None:
         ],
     )
 
-    class CustomRouter(NeedleCommandRouter):
-        def __init__(self, registry):
-            super().__init__(registry=registry)
+    class StaleTestingLaya(MockLayaAgent):
+        def __init__(self):
+            super().__init__()
             self.turn = 0
 
-        def decide_desktop_action(self, goal, desktop_state, tool_schemas, original_persian="", action_history=None):
+        def predict_action(self, state_text, candidates):
             self.turn += 1
             if self.turn == 1:
-                # Deliberately return stale element_id not in current snapshot!
-                return "activate_ui_element", {"element_id": "e_stale"}
-            if self.turn == 2:
-                # On recovery, select valid element
-                return "activate_ui_element", {"element_id": "e1"}
-            return "done", {"summary": "Saved successfully"}
+                # Return candidate with stale element_id not present in snap1!
+                return ActionDecision(selected_id="A_stale", confidence=0.9)
+            # Find candidate for e1
+            for c in candidates:
+                if c.element_id == "e1":
+                    return ActionDecision(selected_id=c.id, confidence=0.95)
+            done_cand = next((c for c in candidates if c.action_type == "done"), candidates[0])
+            return ActionDecision(selected_id=done_cand.id, confidence=0.99)
 
     backend = MockAccessibilityBackend(snapshots=[snap1, snap2])
     input_b = MockInputBackend()
     registry = ToolRegistry()
-    router = CustomRouter(registry=registry)
+    laya = StaleTestingLaya()
 
     agent = DesktopAgent(
         config=DesktopConfig(max_steps=5, settle_delay_ms=0),
-        router=router,
+        laya_agent=laya,
         accessibility=backend,
         input_backend=input_b,
         registry=registry,
     )
 
-    result = agent.execute_goal("click Save")
+    result = agent.execute_goal("ذخیره کن")
     assert result.success is True
     assert ("e1", "click") in backend.actions_performed
+
+
+def test_desktop_agent_max_steps_exceeded() -> None:
+    snap = DesktopSnapshot(
+        active_application="App",
+        active_window="App Window",
+        elements=[
+            UIElement(id="e1", role="button", name="Loop", actions=["click"]),
+        ],
+    )
+
+    class InfiniteWaitLaya(MockLayaAgent):
+        def predict_action(self, state_text, candidates):
+            wait_c = next((c for c in candidates if c.action_type == "wait"), candidates[0])
+            return ActionDecision(selected_id=wait_c.id, confidence=0.5)
+
+    backend = MockAccessibilityBackend(snapshots=[snap])
+    agent = DesktopAgent(
+        config=DesktopConfig(max_steps=3, settle_delay_ms=0),
+        laya_agent=InfiniteWaitLaya(),
+        accessibility=backend,
+        input_backend=MockInputBackend(),
+        registry=ToolRegistry(),
+    )
+
+    res = agent.execute_goal("انجام بده")
+    assert res.success is False
+    assert res.error == "max_steps_exceeded"
+    assert res.steps == 3
+
+
+def test_desktop_agent_calculator_workflow() -> None:
+    # Step 1: konsole is active
+    snap1 = DesktopSnapshot(
+        active_application="konsole",
+        active_window="Konsole",
+        elements=[],
+    )
+    # Step 2: kcalc is active with Display text field
+    snap2 = DesktopSnapshot(
+        active_application="kcalc",
+        active_window="KCalc",
+        elements=[
+            UIElement(id="e1", role="text field", name="Display", states=["editable"], focused=True),
+            UIElement(id="e2", role="button", name="Equal", actions=["click"]),
+        ],
+    )
+
+    backend = MockAccessibilityBackend(snapshots=[snap1, snap2])
+    input_b = MockInputBackend()
+    registry = ToolRegistry()
+
+    @registry.register(name="open_app")
+    def mock_open_app(app_name: str) -> dict:
+        return {"success": True, "message": f"Application '{app_name}' launched."}
+
+    agent = DesktopAgent(
+        config=DesktopConfig(max_steps=5, settle_delay_ms=0),
+        laya_agent=MockLayaAgent(),
+        accessibility=backend,
+        input_backend=input_b,
+        registry=registry,
+        candidate_builder=CandidateBuilder(app_map={"calculator": "kcalc"}),
+    )
+
+    result = agent.execute_goal("open calculator and calculate 2*95")
+    assert result.success is True
+    # Must finish in <= 3 steps and not loop
+    assert result.steps <= 3
+    # open_app should only be called ONCE
+    open_app_count = sum(1 for h in result.history if h.get("action") == "open_app")
+    assert open_app_count == 1
+    # calculation text should be entered
+    assert len(backend.texts_set) == 1
+    assert "2 * 95" in backend.texts_set[0][1]
 

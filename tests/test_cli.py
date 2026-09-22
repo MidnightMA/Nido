@@ -37,23 +37,26 @@ def test_cli_models_status() -> None:
     assert code in (0, 1)
     out = buf.getvalue()
     assert "Nido Offline Models Status" in out
+    assert "Laya Multilingual MLX Decision Model" in out
+    assert "aac6fef/laya-multilingual-mlx" in out
 
 
-def test_cli_test_translate() -> None:
+def test_cli_test_laya() -> None:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        code = main(["test-translate", "کروم را باز کن"])
+        code = main(["test-laya", "نوت را باز کن و بنویس سلام دنیا"])
     assert code == 0
     out = buf.getvalue()
-    assert "Persian:" in out
-    assert "Translated:" in out
+    assert "Testing Laya decision selection" in out
+    assert "Decision Result:" in out
+    assert "Selected ID:" in out
 
 
-def test_cli_test_command() -> None:
+def test_cli_test_desktop() -> None:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        code = main(["test-command", "open firefox"])
-    assert code == 0
+        code = main(["test-desktop", "کیت را باز کن"])
+    assert code in (0, 1)
     out = buf.getvalue()
-    assert "Selected Tools" in out
-    assert "open_app" in out
+    assert "Testing desktop interaction" in out
+    assert "Outcome:" in out

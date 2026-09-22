@@ -16,11 +16,9 @@ from nido.events import EventBus, PipelineStage
 from nido.hotkey.evdev_backend import EvdevHotkeyBackend, MockHotkeyBackend
 from nido.logging import get_logger, setup_logging
 from nido.models.manager import ModelManager
-from nido.needle.agent import NeedleCommandRouter
 from nido.pipeline import AssistantPipeline
 from nido.stt.shenava import MockSpeechRecognizer, ShenavaSherpaRecognizer
 from nido.tools import build_default_registry
-from nido.translation.marian_ct2 import MockTranslator, MarianCT2Translator
 
 logger = get_logger("nido.cli")
 
@@ -31,11 +29,28 @@ def cmd_models_status(config: Config) -> int:
     statuses = manager.get_status()
     print("Nido Offline Models Status:")
     print("-" * 50)
-    for key, stat in statuses.items():
-        state_icon = "✓" if stat.installed else "✗"
-        print(f"[{state_icon}] {stat.name}")
-        print(f"    Directory: {stat.directory}")
-        print(f"    Status:    {stat.details}")
+
+    # Shenava STT
+    stt = statuses.get("stt")
+    if stt:
+        state_icon = "✓" if stt.installed else "✗"
+        print(f"[{state_icon}] {stt.name}")
+        print(f"    Directory: {stt.directory}")
+        print(f"    Status:    {stt.details}")
+
+    # Laya MLX
+    laya = statuses.get("laya")
+    if laya:
+        state_icon = "✓" if laya.installed else "✗"
+        print(f"\n[{state_icon}] {laya.name}")
+        print(f"    Checkpoint:    {laya.checkpoint}")
+        print(f"    Directory:     {laya.directory}")
+        print(f"    Present:       {'yes' if laya.installed else 'no'}")
+        print(f"    Size:          {laya.size_mb} MB")
+        print(f"    Runtime:       {laya.runtime}")
+        print(f"    Device:        {laya.device}")
+        print(f"    Offline-Ready: {'yes' if laya.offline_ready else 'no'}")
+
     print("-" * 50)
     all_ok = all(s.installed for s in statuses.values())
     if not all_ok:
@@ -114,58 +129,6 @@ def cmd_test_stt(config: Config, wav_path: str) -> int:
     return 0
 
 
-def cmd_test_translate(config: Config, persian_text: str) -> int:
-    """Translate Persian text to English command using Marian CTranslate2."""
-    manager = ModelManager(config)
-    statuses = manager.get_status()
-    if statuses["translation"].installed:
-        translator = MarianCT2Translator(
-            model_dir=config.translation.model_dir,
-            compute_type=config.translation.compute_type,
-            beam_size=config.translation.beam_size,
-            max_tokens=config.translation.max_tokens,
-        )
-        if not translator.is_loaded:
-            print("Note: Translation model not loaded; using mock translator.")
-            translator = MockTranslator()
-    else:
-        print("Note: Translation model not installed; using mock translator.")
-        translator = MockTranslator()
-
-    english = translator.translate(persian_text)
-    print(f"Persian:    {persian_text}")
-    print(f"Translated: {english}")
-    return 0
-
-
-def cmd_test_command(config: Config, command: str) -> int:
-    """Test Needle tool routing and safe tool execution for an English command."""
-    registry = build_default_registry(config)
-    router = NeedleCommandRouter(
-        registry=registry,
-        max_steps=config.needle.max_steps,
-        max_new_tokens=config.needle.max_new_tokens,
-    )
-
-    print(f"Command: '{command}'")
-    calls = router.plan(command)
-    print(f"Selected Tools ({len(calls)}):")
-    for idx, c in enumerate(calls, 1):
-        print(f"  {idx}. {c.tool_name}({c.arguments})")
-
-    if not calls:
-        print("No matching tool planned.")
-        return 0
-
-    print("\nExecuting Planned Tools:")
-    for c in calls:
-        res = registry.execute(c.tool_name, c.arguments)
-        status = "✓ SUCCESS" if res.get("success") else "✗ FAILED"
-        print(f"  [{status}] {c.tool_name} -> {res.get('message', res.get('error', ''))}")
-
-    return 0
-
-
 def cmd_accessibility_status(config: Config) -> int:
     """Print accessibility system status and active desktop environment."""
     from nido.accessibility.atspi import AtspiBackend
@@ -239,31 +202,100 @@ def cmd_accessibility_inspect(config: Config) -> int:
     return 0
 
 
+def cmd_test_laya(config: Config, goal: str) -> int:
+    """Test Laya action candidate selection on Persian text with mock/real state."""
+    from nido.accessibility.models import DesktopSnapshot, UIElement
+    from nido.desktop.candidates import CandidateBuilder
+    from nido.laya.agent import LayaDecisionAgent, MockLayaAgent
+
+    print(f"Testing Laya decision selection for Persian goal: '{goal}'")
+    print("=" * 60)
+
+    # Create sample snapshot with realistic Kate editor
+    snapshot = DesktopSnapshot(
+        session_type="wayland",
+        desktop_name="KDE Plasma",
+        active_application="Kate",
+        active_window="Untitled — Kate",
+        elements=[
+            UIElement(id="e1", role="menu item", name="File", actions=["click"]),
+            UIElement(id="e2", role="menu item", name="Edit", actions=["click"]),
+            UIElement(id="e3", role="button", name="Save", actions=["click"]),
+            UIElement(id="e4", role="text field", name="Editor", states=["editable"], focused=True),
+        ],
+    )
+
+    registry = build_default_registry(config)
+    builder = CandidateBuilder(app_map=config.apps, max_candidates=config.laya.max_candidates)
+    candidates = builder.build_candidates(goal=goal, snapshot=snapshot, registry=registry)
+
+    print(f"Generated Candidates ({len(candidates)}):")
+    for c in candidates:
+        print(f"  [{c.id}] {c.label} ({c.action_type})")
+    print()
+
+    # Load agent or mock
+    manager = ModelManager(config)
+    laya_installed = manager.get_status()["laya"].installed
+    if laya_installed:
+        agent = LayaDecisionAgent(config.laya)
+        if not agent.is_loaded:
+            agent = MockLayaAgent(config.laya)
+    else:
+        print("Note: Laya model not installed; using MockLayaAgent.")
+        agent = MockLayaAgent(config.laya)
+
+    state_text = f"USER GOAL\n{goal}\n\nCURRENT STEP\n1 / 24\n\nAVAILABLE ACTIONS\n" + "\n".join(f"[{c.id}] {c.label}" for c in candidates)
+    decision = agent.predict_action(state_text, candidates)
+
+    selected_cand = next((c for c in candidates if c.id == decision.selected_id), None)
+    cand_label = selected_cand.label if selected_cand else decision.selected_id
+
+    print("Decision Result:")
+    print(f"  Selected ID:   {decision.selected_id}")
+    print(f"  Action:        {cand_label}")
+    print(f"  Confidence:    {decision.confidence:.2f}")
+    if decision.probabilities:
+        print("  Top Probabilities:")
+        sorted_probs = sorted(decision.probabilities.items(), key=lambda x: x[1], reverse=True)[:5]
+        for cid, p in sorted_probs:
+            print(f"    {cid}: {p:.3f}")
+    return 0
+
+
 def cmd_test_desktop(config: Config, command: str) -> int:
-    """Execute a desktop interaction goal directly, bypassing STT and translation."""
+    """Execute a desktop interaction goal directly through the Laya multi-step agent loop."""
     from nido.accessibility.atspi import AtspiBackend
     from nido.desktop.agent import DesktopAgent
+    from nido.desktop.candidates import CandidateBuilder
     from nido.desktop.input import detect_input_backend
+    from nido.laya.agent import LayaDecisionAgent, MockLayaAgent
 
     backend = AtspiBackend()
     input_b = detect_input_backend(config.desktop.input_backend)
     registry = build_default_registry(config)
-    router = NeedleCommandRouter(
-        registry=registry,
-        max_steps=config.needle.max_steps,
-        max_new_tokens=config.needle.max_new_tokens,
-    )
+
+    manager = ModelManager(config)
+    if manager.get_status()["laya"].installed:
+        laya_agent = LayaDecisionAgent(config.laya)
+        if not laya_agent.is_loaded:
+            laya_agent = MockLayaAgent(config.laya)
+    else:
+        laya_agent = MockLayaAgent(config.laya)
+
+    cand_builder = CandidateBuilder(app_map=config.apps, max_candidates=config.laya.max_candidates)
     agent = DesktopAgent(
         config=config.desktop,
-        router=router,
+        laya_agent=laya_agent,
         accessibility=backend,
         input_backend=input_b,
+        candidate_builder=cand_builder,
         registry=registry,
     )
 
     print(f"Testing desktop interaction for goal: '{command}'")
     print("=" * 60)
-    res = agent.execute_goal(command)
+    res = agent.execute_goal(original_persian=command)
     print("=" * 60)
     status_str = "✓ SUCCESS" if res.success else "✗ FAILED"
     print(f"Outcome: {status_str} in {res.steps} step(s)")
@@ -295,30 +327,12 @@ def run_daemon(config: Config, debug: bool = False) -> int:
     else:
         stt = MockSpeechRecognizer()
 
-    # Initialize Translator
-    if manager.get_status()["translation"].installed:
-        translator = MarianCT2Translator(
-            model_dir=config.translation.model_dir,
-            compute_type=config.translation.compute_type,
-            beam_size=config.translation.beam_size,
-            max_tokens=config.translation.max_tokens,
-        )
-    else:
-        translator = MockTranslator()
-
-    # Initialize Registry, Router, and Pipeline
+    # Initialize Registry, Laya Agent, and Pipeline
     registry = build_default_registry(config)
-    router = NeedleCommandRouter(
-        registry=registry,
-        max_steps=config.needle.max_steps,
-        max_new_tokens=config.needle.max_new_tokens,
-    )
     event_bus = EventBus()
     pipeline = AssistantPipeline(
         config=config,
         stt=stt,
-        translator=translator,
-        router=router,
         registry=registry,
         event_bus=event_bus,
     )
@@ -484,14 +498,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     stt_p = subparsers.add_parser("test-stt", help="Test Persian STT on a WAV file.")
     stt_p.add_argument("file", type=str, help="Path to input audio file.")
 
-    trans_p = subparsers.add_parser("test-translate", help="Test Persian->English translation.")
-    trans_p.add_argument("text", type=str, help="Persian text to translate.")
-
-    cmd_p = subparsers.add_parser("test-command", help="Test Needle tool routing for a command.")
-    cmd_p.add_argument("command", type=str, help="English command to route.")
+    laya_p = subparsers.add_parser("test-laya", help="Test Laya action candidate selection for a Persian goal.")
+    laya_p.add_argument("goal", type=str, help="Persian goal (e.g. 'نوت را باز کن و بنویس سلام دنیا').")
 
     desk_p = subparsers.add_parser("test-desktop", help="Test multi-step desktop agent interaction.")
-    desk_p.add_argument("goal", type=str, help="Desktop interaction goal (e.g. 'open Kate and write hello').")
+    desk_p.add_argument("goal", type=str, help="Desktop interaction goal in Persian.")
 
     args = parser.parse_args(argv)
 
@@ -521,11 +532,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     elif args.subcommand == "test-stt":
         return cmd_test_stt(config, args.file)
 
-    elif args.subcommand == "test-translate":
-        return cmd_test_translate(config, args.text)
-
-    elif args.subcommand == "test-command":
-        return cmd_test_command(config, args.command)
+    elif args.subcommand == "test-laya":
+        return cmd_test_laya(config, args.goal)
 
     elif args.subcommand == "test-desktop":
         return cmd_test_desktop(config, args.goal)

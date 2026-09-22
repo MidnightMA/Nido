@@ -60,15 +60,15 @@ QLabel#SectionHeader {
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
-QLabel#HeardText {
+QLabel#GoalText {
     font-size: 14px;
     font-weight: 500;
     color: #F8FAFC;
 }
-QLabel#TranslatedText {
-    font-size: 13px;
-    color: #CBD5E1;
-    font-style: italic;
+QLabel#AppInfoText {
+    font-size: 12px;
+    color: #38BDF8;
+    font-weight: 500;
 }
 QLabel#ActionText {
     font-size: 12px;
@@ -96,6 +96,9 @@ class NidoOverlay(QWidget):
         self._setup_window_flags()
         self._setup_ui()
         self._setup_timer()
+
+    def _setup_window_flags() -> None:
+        pass
 
     def _setup_window_flags(self) -> None:
         if Qt is None:
@@ -136,25 +139,24 @@ class NidoOverlay(QWidget):
         self.top_bar.addWidget(self.status_badge)
         self.card_layout.addLayout(self.top_bar)
 
-        # Heard Section (Persian)
-        self.heard_header = QLabel("Heard:", self.card)
-        self.heard_header.setObjectName("SectionHeader")
-        self.heard_label = QLabel("", self.card)
-        self.heard_label.setObjectName("HeardText")
-        self.heard_label.setWordWrap(True)
-        self.card_layout.addWidget(self.heard_header)
-        self.card_layout.addWidget(self.heard_label)
+        # Goal Section (Persian)
+        self.goal_header = QLabel("Goal:", self.card)
+        self.goal_header.setObjectName("SectionHeader")
+        self.goal_label = QLabel("", self.card)
+        self.goal_label.setObjectName("GoalText")
+        self.goal_label.setWordWrap(True)
+        self.card_layout.addWidget(self.goal_header)
+        self.card_layout.addWidget(self.goal_label)
 
-        # Translated Section (English)
-        self.trans_header = QLabel("Translated:", self.card)
-        self.trans_header.setObjectName("SectionHeader")
-        self.trans_label = QLabel("", self.card)
-        self.trans_label.setObjectName("TranslatedText")
-        self.trans_label.setWordWrap(True)
-        self.card_layout.addWidget(self.trans_header)
-        self.card_layout.addWidget(self.trans_label)
+        # Application / Window Section
+        self.app_header = QLabel("Application:", self.card)
+        self.app_header.setObjectName("SectionHeader")
+        self.app_label = QLabel("", self.card)
+        self.app_label.setObjectName("AppInfoText")
+        self.card_layout.addWidget(self.app_header)
+        self.card_layout.addWidget(self.app_label)
 
-        # Action / Execution Section
+        # Action / Step Section
         self.action_header = QLabel("Action:", self.card)
         self.action_header.setObjectName("SectionHeader")
         self.action_label = QLabel("", self.card)
@@ -174,7 +176,7 @@ class NidoOverlay(QWidget):
         self.card_layout.addWidget(self.timing_label)
 
         self.main_layout.addWidget(self.card)
-        self.setFixedWidth(360)
+        self.setFixedWidth(380)
 
     def _setup_timer(self) -> None:
         if QTimer is None:
@@ -214,9 +216,9 @@ class NidoOverlay(QWidget):
         self.hide_timer.stop()
         self.status_badge.setText("LISTENING...")
         self.status_badge.setStyleSheet("background-color: #EF4444; color: white;")
-        self.heard_label.setText("Listening for Persian command...")
-        self.trans_header.hide()
-        self.trans_label.hide()
+        self.goal_label.setText("Listening for Persian command...")
+        self.app_header.hide()
+        self.app_label.hide()
         self.action_header.hide()
         self.action_label.hide()
         self.result_label.hide()
@@ -234,17 +236,9 @@ class NidoOverlay(QWidget):
             self.status_badge.setText("TRANSCRIBING...")
             self.status_badge.setStyleSheet("background-color: #3B82F6; color: white;")
             if "persian_text" in data:
-                self.heard_label.setText(data["persian_text"])
-        elif stage == PipelineStage.TRANSLATING:
-            self.status_badge.setText("TRANSLATING...")
-            self.status_badge.setStyleSheet("background-color: #8B5CF6; color: white;")
-            if "english_cmd" in data:
-                self.trans_header.show()
-                self.trans_label.setText(data["english_cmd"])
-                self.trans_label.show()
-        elif stage == PipelineStage.THINKING:
-            self.status_badge.setText("THINKING...")
-            self.status_badge.setStyleSheet("background-color: #F59E0B; color: white;")
+                self.goal_label.setText(data["persian_text"])
+                self.goal_header.show()
+                self.goal_label.show()
         elif stage == PipelineStage.OBSERVING:
             self.status_badge.setText("OBSERVING...")
             self.status_badge.setStyleSheet("background-color: #0284C7; color: white;")
@@ -257,31 +251,36 @@ class NidoOverlay(QWidget):
             self.status_badge.setStyleSheet("background-color: #8B5CF6; color: white;")
             app_str = data.get("active_app", "")
             if app_str:
-                self.action_header.show()
-                self.action_label.setText(f"Active app: {app_str}")
-                self.action_label.show()
+                self.app_header.show()
+                self.app_label.setText(app_str)
+                self.app_label.show()
         elif stage == PipelineStage.INTERACTING:
             self.status_badge.setText("INTERACTING...")
             self.status_badge.setStyleSheet("background-color: #10B981; color: white;")
-            step_str = f"Step {data.get('step', 1)}: " if "step" in data else ""
-            target = data.get("target_name") or data.get("action", "")
+            step_str = f"Step {data.get('step', 1)}/{data.get('max_steps', 24)}: " if "step" in data else ""
+            action_desc = data.get("label") or data.get("target_name") or data.get("action", "")
             self.action_header.show()
-            self.action_label.setText(f"{step_str}{target}")
+            self.action_label.setText(f"{step_str}{action_desc}")
             self.action_label.show()
-        elif stage == PipelineStage.EXECUTING:
-            self.status_badge.setText("EXECUTING...")
-            self.status_badge.setStyleSheet("background-color: #10B981; color: white;")
-            if "tools" in data:
-                self.action_header.show()
-                self.action_label.setText(", ".join(data["tools"]))
-                self.action_label.show()
+        elif stage == PipelineStage.WAITING:
+            self.status_badge.setText("WAITING...")
+            self.status_badge.setStyleSheet("background-color: #F59E0B; color: white;")
+            self.action_header.show()
+            self.action_label.setText("Waiting for UI to settle...")
+            self.action_label.show()
+        elif stage == PipelineStage.BLOCKED:
+            self.status_badge.setText("BLOCKED")
+            self.status_badge.setStyleSheet("background-color: #DC2626; color: white;")
+            err = data.get("error", message)
+            self.result_label.setText(f"Blocked: {err}")
+            self.result_label.show()
+            self.hide_timer.start(self.config.timeout_ms)
         elif stage == PipelineStage.DONE:
             self.status_badge.setText("DONE")
             self.status_badge.setStyleSheet("background-color: #059669; color: white;")
-            if "executed_results" in data and data["executed_results"]:
-                res_texts = [r.get("message", r.get("error", "")) for r in data["executed_results"]]
-                self.result_label.setText("\n".join(res_texts))
-                self.result_label.show()
+            summary = data.get("summary", message)
+            self.result_label.setText(f"Done: {summary}")
+            self.result_label.show()
             if "timings" in data and "total" in data["timings"]:
                 self.timing_label.setText(f"Total: {data['timings']['total']}s")
                 self.timing_label.show()

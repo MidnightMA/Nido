@@ -31,16 +31,32 @@ compact = false
 model_dir = "~/.local/share/nido/models/shenava"
 threads = 4
 
-[translation]
-# Local directory for CTranslate2 Marian Persian->English model
-model_dir = "~/.local/share/nido/models/translation-ct2"
-compute_type = "int8"
-beam_size = 1
-max_tokens = 64
+[laya]
+# Local directory for Laya multilingual MLX model
+enabled = true
+model_dir = "~/.local/share/nido/models/laya-multilingual-mlx"
+dtype = "float16"
+device = "auto"
+batch_size = 16
+compile = true
+cache_prompts = true
+pad_to_multiple = 16
+max_elements = 120
+max_candidates = 24
+shortlist_size = 20
 
-[needle]
-max_steps = 8
-max_new_tokens = 128
+[desktop]
+enabled = true
+max_steps = 24
+max_elements = 120
+max_depth = 32
+settle_delay_ms = 120
+action_timeout_ms = 2000
+snapshot_timeout_ms = 1500
+include_invisible = false
+include_offscreen = false
+accessibility_backend = "auto"
+input_backend = "auto"
 
 [apps]
 # Whitelist and aliases for open_app tool

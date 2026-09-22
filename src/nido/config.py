@@ -47,17 +47,19 @@ class STTConfig:
 
 
 @dataclass
-class TranslationConfig:
-    model_dir: str = "~/.local/share/nido/models/translation-ct2"
-    compute_type: str = "int8"
-    beam_size: int = 1
-    max_tokens: int = 64
-
-
-@dataclass
-class NeedleConfig:
-    max_steps: int = 8
-    max_new_tokens: int = 128
+class LayaConfig:
+    enabled: bool = True
+    model_dir: str = "~/.local/share/nido/models/laya-multilingual-mlx"
+    dtype: str = "float16"
+    device: str = "auto"
+    batch_size: int = 16
+    compile: bool = True
+    cache_prompts: bool = True
+    pad_to_multiple: int = 16
+    max_elements: int = 120
+    max_candidates: int = 24
+    shortlist_size: int = 20
+    confidence_threshold: float = 0.0
 
 
 @dataclass
@@ -104,8 +106,7 @@ class Config:
     audio: AudioConfig = field(default_factory=AudioConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     stt: STTConfig = field(default_factory=STTConfig)
-    translation: TranslationConfig = field(default_factory=TranslationConfig)
-    needle: NeedleConfig = field(default_factory=NeedleConfig)
+    laya: LayaConfig = field(default_factory=LayaConfig)
     apps: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_APPS))
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
     system: SystemConfig = field(default_factory=SystemConfig)
@@ -175,20 +176,21 @@ def load_config(config_path: str | Path | None = None) -> Config:
             threads=int(s.get("threads", config.stt.threads)),
         )
 
-    if "translation" in data and isinstance(data["translation"], dict):
-        t = data["translation"]
-        config.translation = TranslationConfig(
-            model_dir=t.get("model_dir", config.translation.model_dir),
-            compute_type=t.get("compute_type", config.translation.compute_type),
-            beam_size=int(t.get("beam_size", config.translation.beam_size)),
-            max_tokens=int(t.get("max_tokens", config.translation.max_tokens)),
-        )
-
-    if "needle" in data and isinstance(data["needle"], dict):
-        n = data["needle"]
-        config.needle = NeedleConfig(
-            max_steps=int(n.get("max_steps", config.needle.max_steps)),
-            max_new_tokens=int(n.get("max_new_tokens", config.needle.max_new_tokens)),
+    if "laya" in data and isinstance(data["laya"], dict):
+        ly = data["laya"]
+        config.laya = LayaConfig(
+            enabled=bool(ly.get("enabled", config.laya.enabled)),
+            model_dir=str(ly.get("model_dir", config.laya.model_dir)),
+            dtype=str(ly.get("dtype", config.laya.dtype)),
+            device=str(ly.get("device", config.laya.device)),
+            batch_size=int(ly.get("batch_size", config.laya.batch_size)),
+            compile=bool(ly.get("compile", config.laya.compile)),
+            cache_prompts=bool(ly.get("cache_prompts", config.laya.cache_prompts)),
+            pad_to_multiple=int(ly.get("pad_to_multiple", config.laya.pad_to_multiple)),
+            max_elements=int(ly.get("max_elements", config.laya.max_elements)),
+            max_candidates=int(ly.get("max_candidates", config.laya.max_candidates)),
+            shortlist_size=int(ly.get("shortlist_size", config.laya.shortlist_size)),
+            confidence_threshold=float(ly.get("confidence_threshold", config.laya.confidence_threshold)),
         )
 
     if "apps" in data and isinstance(data["apps"], dict):
