@@ -89,7 +89,7 @@ Nido transcribes the Persian utterance locally, translates it to a concise Engli
 | :--- | :--- | :--- | :--- | :--- |
 | **Persian STT** | `Reza2kn/Shenava-Koochik-v1.0-sherpa-onnx` | `sherpa-onnx` | ONNX (float32) | `~/.local/share/nido/models/shenava/` |
 | **Translation** | `HPLT/translate-fa-en-v2.0-hplt_opus` | `ctranslate2` | INT8 Marian | `~/.local/share/nido/models/translation-ct2/` |
-| **Tool Router**| `Cactus-Compute/needle3` | `cactus-needle` | PyTorch / Local Agent | Reusable in-memory router |
+| **Tool Router**| `Cactus-Compute/needle3` | `cactus-needle` | Structured Tool Router | Reusable in-memory router |
 
 ---
 
@@ -102,7 +102,7 @@ Ensure system audio utilities and development headers are installed:
 ```bash
 # Ubuntu / Debian / KDE Neon / Kubuntu
 sudo apt install python3-pip python3-venv libasound2-dev pulseaudio-utils playerctl spectacle \
-    python3-gi gir1.2-atspi-2.0 at-spi2-core libatk-adaptor wtype
+    python3-gi gir1.2-atspi-2.0 at-spi2-core libatk-adaptor wtype libcairo2-dev
 
 # Arch Linux / Manjaro
 sudo pacman -S python python-pip pipewire-pulse playerctl spectacle

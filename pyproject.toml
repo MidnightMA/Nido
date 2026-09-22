@@ -37,7 +37,6 @@ dependencies = [
     "cactus-needle>=0.1.0",
     "pyside6>=6.5.0",
     "huggingface_hub>=0.20.0",
-    "torch>=2.0.0",
     "PyGObject>=3.42.0",
 ]
 
