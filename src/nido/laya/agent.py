@@ -244,22 +244,44 @@ class MockLayaAgent:
 
         def is_app_already_opened(app_name: str) -> bool:
             app = app_name.lower()
-            if not history_text:
-                return f"application: {app}" in state_text.lower()
-            return (
-                f"open application: {app}" in history_text
-                or f"open application {app}" in history_text
-                or f"opened application {app}" in history_text
-                or f"application: {app}" in state_text.lower()
+            app_match = re.search(r"\nApplication:\s*([^\n]+)", state_text)
+            active_app = app_match.group(1).strip().lower() if app_match else ""
+            if active_app and (app in active_app or active_app in app):
+                return True
+            return bool(
+                history_text
+                and (
+                    f"open application: {app}" in history_text
+                    or f"open application {app}" in history_text
+                    or f"opened application {app}" in history_text
+                )
             )
 
         # Candidate helpers
         wait_candidates = [c for c in candidates if c.action_type == "wait"]
         done_candidates = [c for c in candidates if c.action_type == "done"]
 
-        # 1. Check text entry tasks
-        text_keywords = ["بنویس", "تایپ", "write", "type"]
+        open_keywords = ["open", "launch", "run", "باز کن", "اجرا کن"]
+        wants_open = any(k in goal_lower for k in open_keywords)
+        text_keywords = ["write", "type", "enter", "بنویس", "تایپ"]
         wants_text = any(k in goal_lower for k in text_keywords)
+        calc_keywords = ["calculate", "compute", "solve", "حساب کن", "محاسبه کن"]
+        wants_calc = any(k in goal_lower for k in calc_keywords) or bool(re.search(r'\d+[\s\+\-\*\/\.xX]+\d+', goal_lower))
+
+        # 1. Check app launching tasks (prioritized if app is not yet opened)
+        if wants_open:
+            app_candidates = [c for c in candidates if c.action_type == "open_app"]
+            for ac in app_candidates:
+                app_name = ac.arguments.get("app_name", "").lower()
+                if app_name and (app_name in goal_lower or self._matches_app_synonym(goal_lower, app_name)):
+                    if not is_app_already_opened(app_name):
+                        return ActionDecision(
+                            selected_id=ac.id,
+                            confidence=0.98,
+                            probabilities={c.id: (0.98 if c.id == ac.id else 0.02 / len(candidates)) for c in candidates},
+                        )
+
+        # 2. Check text entry tasks
         if wants_text:
             text_candidates = [
                 c for c in candidates
@@ -272,16 +294,13 @@ class MockLayaAgent:
                     probabilities={c.id: (0.95 if c.id == text_candidates[0].id else 0.05 / len(candidates)) for c in candidates},
                 )
             elif not text_candidates and not has_set_text and wait_candidates and ("open application" in history_text or "opened" in history_text):
-                # Application just launched; wait for editable UI to appear
                 return ActionDecision(
                     selected_id=wait_candidates[0].id,
                     confidence=0.90,
                     probabilities={c.id: (0.90 if c.id == wait_candidates[0].id else 0.10 / len(candidates)) for c in candidates},
                 )
 
-        # 2. Check calculation tasks
-        calc_keywords = ["حساب کن", "محاسبه کن", "calculate", "compute", "solve", "ضرب", "جمع", "منها", "تقسیم"]
-        wants_calc = any(k in goal_lower for k in calc_keywords) or bool(re.search(r'\d+[\s\+\-\*\/\.xX]+\d+', goal_lower))
+        # 3. Check calculation tasks
         if wants_calc:
             calc_text_candidates = [
                 c for c in candidates
@@ -294,50 +313,59 @@ class MockLayaAgent:
                     probabilities={c.id: (0.95 if c.id == calc_text_candidates[0].id else 0.05 / len(candidates)) for c in candidates},
                 )
             elif not calc_text_candidates and not has_set_text and wait_candidates and ("open application" in history_text or "opened" in history_text):
-                # Calculator just launched; wait for display to appear
                 return ActionDecision(
                     selected_id=wait_candidates[0].id,
                     confidence=0.90,
                     probabilities={c.id: (0.90 if c.id == wait_candidates[0].id else 0.10 / len(candidates)) for c in candidates},
                 )
 
-        # 3. Check app launching tasks (only for apps not already launched)
-        open_keywords = ["باز کن", "اجرا کن", "open", "launch", "run"]
-        wants_open = any(k in goal_lower for k in open_keywords)
-        if wants_open:
-            app_candidates = [c for c in candidates if c.action_type == "open_app"]
-            for ac in app_candidates:
-                app_name = ac.arguments.get("app_name", "").lower()
-                if app_name and (app_name in goal_lower or self._matches_persian_app(goal_lower, app_name)):
-                    if not is_app_already_opened(app_name):
-                        return ActionDecision(
-                            selected_id=ac.id,
-                            confidence=0.98,
-                            probabilities={c.id: (0.98 if c.id == ac.id else 0.02 / len(candidates)) for c in candidates},
-                        )
+        # 4. Check if a requested action already completed -> DONE
+        if has_executed_action and done_candidates:
+            if (wants_text or wants_calc) and has_set_text:
+                return ActionDecision(
+                    selected_id=done_candidates[0].id,
+                    confidence=0.99,
+                    probabilities={c.id: (0.99 if c.id == done_candidates[0].id else 0.01 / len(candidates)) for c in candidates},
+                )
+            if wants_open and not wants_text and not wants_calc and ("open application" in history_text or "opened" in history_text):
+                return ActionDecision(
+                    selected_id=done_candidates[0].id,
+                    confidence=0.99,
+                    probabilities={c.id: (0.99 if c.id == done_candidates[0].id else 0.01 / len(candidates)) for c in candidates},
+                )
+            # If UI action or navigation already succeeded in history, finish
+            if any(k in history_text for k in ("activate [", "performed click", "clicked", "executed action")):
+                return ActionDecision(
+                    selected_id=done_candidates[0].id,
+                    confidence=0.99,
+                    probabilities={c.id: (0.99 if c.id == done_candidates[0].id else 0.01 / len(candidates)) for c in candidates},
+                )
 
-        # 4. Check UI activation / buttons / navigation
-        # Look for semantic label overlap with goal
+        # 5. Check UI activation / buttons / navigation (excluding actions already executed)
         best_score = -1.0
-        best_cand = candidates[0]
+        best_cand = None
         for c in candidates:
             if c.action_type in ("done", "blocked", "wait", "open_app"):
                 continue
-            words = [w for w in re.split(r"[\s\"']+", c.label.lower()) if len(w) > 2]
+            # Avoid repeating exact same action if already in history
+            c_label_lower = c.label.lower()
+            if c_label_lower in history_text:
+                continue
+            words = [w for w in re.split(r"[\s\"']+", c_label_lower) if len(w) > 2]
             score = sum(1.0 for w in words if w in goal_lower)
             if score > best_score:
                 best_score = score
                 best_cand = c
 
-        if best_score > 0:
+        if best_cand is not None and best_score > 0:
             return ActionDecision(
                 selected_id=best_cand.id,
                 confidence=0.90,
                 probabilities={c.id: (0.90 if c.id == best_cand.id else 0.10 / len(candidates)) for c in candidates},
             )
 
-        # 5. Static tool candidates (volume, media, etc.)
-        vol_keywords = ["صدا", "volume", "sound"]
+        # 6. Static tool candidates (volume, media, etc.)
+        vol_keywords = ["volume", "sound", "صدا"]
         if any(k in goal_lower for k in vol_keywords):
             vol_cands = [c for c in candidates if "volume" in c.action_type]
             if vol_cands:
@@ -347,7 +375,7 @@ class MockLayaAgent:
                     probabilities={c.id: (0.95 if c.id == vol_cands[0].id else 0.05 / len(candidates)) for c in candidates},
                 )
 
-        media_keywords = ["پخش", "آهنگ", "موزیک", "play", "pause", "track", "music"]
+        media_keywords = ["play", "pause", "track", "music", "پخش", "آهنگ"]
         if any(k in goal_lower for k in media_keywords):
             media_cands = [c for c in candidates if c.action_type in ("play_pause", "next_track", "previous_track")]
             if media_cands:
@@ -357,24 +385,8 @@ class MockLayaAgent:
                     probabilities={c.id: (0.95 if c.id == media_cands[0].id else 0.05 / len(candidates)) for c in candidates},
                 )
 
-        # 6. If action history shows useful action was executed, return DONE
-        done_candidates = [c for c in candidates if c.action_type == "done"]
+        # 7. General fallback to DONE if at least one action has succeeded
         if has_executed_action and done_candidates:
-            # If user wanted text/calculation and that has completed, return DONE
-            if (wants_text or wants_calc) and has_set_text:
-                return ActionDecision(
-                    selected_id=done_candidates[0].id,
-                    confidence=0.99,
-                    probabilities={c.id: (0.99 if c.id == done_candidates[0].id else 0.01 / len(candidates)) for c in candidates},
-                )
-            # If user only wanted to open an app and that succeeded, return DONE
-            if wants_open and not wants_text and not wants_calc:
-                return ActionDecision(
-                    selected_id=done_candidates[0].id,
-                    confidence=0.99,
-                    probabilities={c.id: (0.99 if c.id == done_candidates[0].id else 0.01 / len(candidates)) for c in candidates},
-                )
-            # General fallback to DONE if at least one step was executed
             return ActionDecision(
                 selected_id=done_candidates[0].id,
                 confidence=0.95,
@@ -390,14 +402,17 @@ class MockLayaAgent:
             probabilities={c.id: 1.0 / len(candidates) for c in candidates},
         )
 
-    def _matches_persian_app(self, goal: str, app_name: str) -> bool:
-        aliases = {
-            "kate": ["کیت", "kate", "نوت", "ویرایشگر", "editor"],
-            "dolphin": ["دلفین", "فایل", "downloads", "پوشه", "dolphin"],
-            "kcalc": ["ماشین حساب", "حساب", "kcalc", "calculator"],
-            "firefox": ["فایرفاکس", "مرورگر", "firefox", "browser"],
-            "google-chrome": ["کروم", "گوگل کروم", "chrome"],
-            "konsole": ["کنسول", "ترمینال", "konsole", "terminal"],
-            "systemsettings": ["تنظیمات", "settings"],
+    def _matches_app_synonym(self, goal: str, app_name: str) -> bool:
+        synonyms = {
+            "kate": ["kate", "notes", "note", "editor", "text editor", "کیت"],
+            "dolphin": ["dolphin", "files", "file manager", "downloads", "folder", "دلفین"],
+            "kcalc": ["kcalc", "calculator", "calc", "ماشین حساب"],
+            "firefox": ["firefox", "browser", "web browser", "فایرفاکس"],
+            "google-chrome": ["chrome", "google-chrome", "browser", "کروم"],
+            "konsole": ["konsole", "terminal", "console", "کنسول"],
+            "systemsettings": ["settings", "systemsettings", "تنظیمات"],
         }
-        return any(alias in goal for alias in aliases.get(app_name, [app_name]))
+        for syn in synonyms.get(app_name.lower(), []):
+            if syn in goal:
+                return True
+        return False

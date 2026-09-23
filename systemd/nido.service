@@ -1,5 +1,5 @@
 [Unit]
-Description=Nido Offline Persian Voice Assistant Daemon
+Description=Nido Offline English Voice Assistant Daemon
 PartOf=graphical-session.target
 After=graphical-session.target pipewire.service pulseaudio.service
 

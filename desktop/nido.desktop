@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Nido
-GenericName=Persian Voice Assistant
-Comment=Lightweight, fully offline Persian voice command assistant
+GenericName=English Voice Assistant
+Comment=Lightweight, fully offline English voice-controlled desktop assistant
 Exec=nido
 Icon=audio-input-microphone
 Terminal=false

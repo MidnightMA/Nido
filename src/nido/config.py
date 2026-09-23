@@ -16,13 +16,14 @@ except ModuleNotFoundError:
 @dataclass
 class AssistantConfig:
     name: str = "Nido"
-    language: str = "fa"
+    language: str = "en"
 
 
 @dataclass
 class HotkeyConfig:
     key: str = "KEY_F9"
     device: str = ""
+    mode_threshold_ms: int = 300
 
 
 @dataclass
@@ -31,6 +32,7 @@ class AudioConfig:
     sample_rate: int = 16000
     channels: int = 1
     max_seconds: int = 30
+    prebuffer_ms: int = 400
 
 
 @dataclass
@@ -42,8 +44,25 @@ class UIConfig:
 
 @dataclass
 class STTConfig:
-    model_dir: str = "~/.local/share/nido/models/shenava"
-    threads: int = 4
+    model_dir: str = "~/.local/share/nido/models/sherpa-onnx-streaming-zipformer-en-2023-06-26"
+    threads: int = 2
+    provider: str = "cpu"
+    decoding_method: str = "greedy_search"
+    enable_endpoint_detection: bool = True
+    rule1_min_trailing_silence: float = 0.8
+    rule2_min_trailing_silence: float = 0.6
+    rule3_min_utterance_length: float = 20.0
+
+
+@dataclass
+class RealtimeConfig:
+    enabled: bool = True
+    max_pending_commands: int = 8
+    partial_update_interval_ms: int = 80
+    finalization_timeout_ms: int = 1500
+    show_transcript_history: bool = True
+    transcript_history_size: int = 5
+    dispatch_stable_partials: bool = False
 
 
 @dataclass
@@ -106,6 +125,7 @@ class Config:
     audio: AudioConfig = field(default_factory=AudioConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     stt: STTConfig = field(default_factory=STTConfig)
+    realtime: RealtimeConfig = field(default_factory=RealtimeConfig)
     laya: LayaConfig = field(default_factory=LayaConfig)
     apps: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_APPS))
     desktop: DesktopConfig = field(default_factory=DesktopConfig)
@@ -150,6 +170,7 @@ def load_config(config_path: str | Path | None = None) -> Config:
         config.hotkey = HotkeyConfig(
             key=h.get("key", config.hotkey.key),
             device=h.get("device", config.hotkey.device),
+            mode_threshold_ms=int(h.get("mode_threshold_ms", config.hotkey.mode_threshold_ms)),
         )
 
     if "audio" in data and isinstance(data["audio"], dict):
@@ -159,6 +180,7 @@ def load_config(config_path: str | Path | None = None) -> Config:
             sample_rate=int(au.get("sample_rate", config.audio.sample_rate)),
             channels=int(au.get("channels", config.audio.channels)),
             max_seconds=int(au.get("max_seconds", config.audio.max_seconds)),
+            prebuffer_ms=int(au.get("prebuffer_ms", config.audio.prebuffer_ms)),
         )
 
     if "ui" in data and isinstance(data["ui"], dict):
@@ -171,9 +193,30 @@ def load_config(config_path: str | Path | None = None) -> Config:
 
     if "stt" in data and isinstance(data["stt"], dict):
         s = data["stt"]
+        stt_model_dir = s.get("model_dir", config.stt.model_dir)
+        if "20M" in stt_model_dir or "shenava" in stt_model_dir:
+            stt_model_dir = config.stt.model_dir
         config.stt = STTConfig(
-            model_dir=s.get("model_dir", config.stt.model_dir),
+            model_dir=stt_model_dir,
             threads=int(s.get("threads", config.stt.threads)),
+            provider=str(s.get("provider", config.stt.provider)),
+            decoding_method=str(s.get("decoding_method", config.stt.decoding_method)),
+            enable_endpoint_detection=bool(s.get("enable_endpoint_detection", config.stt.enable_endpoint_detection)),
+            rule1_min_trailing_silence=float(s.get("rule1_min_trailing_silence", config.stt.rule1_min_trailing_silence)),
+            rule2_min_trailing_silence=float(s.get("rule2_min_trailing_silence", config.stt.rule2_min_trailing_silence)),
+            rule3_min_utterance_length=float(s.get("rule3_min_utterance_length", config.stt.rule3_min_utterance_length)),
+        )
+
+    if "realtime" in data and isinstance(data["realtime"], dict):
+        rt = data["realtime"]
+        config.realtime = RealtimeConfig(
+            enabled=bool(rt.get("enabled", config.realtime.enabled)),
+            max_pending_commands=int(rt.get("max_pending_commands", config.realtime.max_pending_commands)),
+            partial_update_interval_ms=int(rt.get("partial_update_interval_ms", config.realtime.partial_update_interval_ms)),
+            finalization_timeout_ms=int(rt.get("finalization_timeout_ms", config.realtime.finalization_timeout_ms)),
+            show_transcript_history=bool(rt.get("show_transcript_history", config.realtime.show_transcript_history)),
+            transcript_history_size=int(rt.get("transcript_history_size", config.realtime.transcript_history_size)),
+            dispatch_stable_partials=bool(rt.get("dispatch_stable_partials", config.realtime.dispatch_stable_partials)),
         )
 
     if "laya" in data and isinstance(data["laya"], dict):

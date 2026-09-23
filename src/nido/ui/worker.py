@@ -1,4 +1,4 @@
-"""Background worker thread for asynchronous pipeline execution in PySide6."""
+"""Background worker threads and signal bridges for asynchronous execution in PySide6."""
 
 from __future__ import annotations
 
@@ -34,11 +34,28 @@ except ImportError:
 
         return DummySignal()
 
-from nido.events import PipelineEvent, PipelineStage
+from nido.events import EventBus, PipelineEvent, PipelineStage
 from nido.logging import get_logger
 from nido.pipeline import AssistantPipeline, PipelineResult
 
 logger = get_logger("nido.ui.worker")
+
+
+class EventBridge(QObject):
+    """Bridges multi-threaded pipeline and realtime events safely to Qt GUI signals."""
+
+    event_received = Signal(str, str, dict)
+
+    def __init__(self, event_bus: EventBus, parent: Optional[QObject] = None) -> None:
+        super().__init__(parent)
+        self.event_bus = event_bus
+        self.event_bus.subscribe(self._on_event)
+
+    def _on_event(self, event: PipelineEvent) -> None:
+        self.event_received.emit(event.stage.value, event.message, event.data)
+
+    def cleanup(self) -> None:
+        self.event_bus.unsubscribe(self._on_event)
 
 
 class PipelineWorker(QThread):
@@ -55,7 +72,6 @@ class PipelineWorker(QThread):
     def run(self) -> None:
         logger.debug("PipelineWorker started in background thread.")
 
-        # Hook into pipeline event bus to bridge to Qt signals
         def _on_event(event: PipelineEvent) -> None:
             self.stage_changed.emit(event.stage.value, event.message, event.data)
 

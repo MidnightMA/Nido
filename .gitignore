@@ -39,7 +39,7 @@ venv.bak/
 htmlcov/
 
 # User models & local data
-models/
+/models/
 *.onnx
 *.bin
 *.spm
@@ -50,3 +50,5 @@ models/
 .vscode/
 *.swp
 *.swo
+
+/*.txt

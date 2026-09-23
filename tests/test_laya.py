@@ -28,13 +28,13 @@ def test_mock_laya_agent_text_entry_selection() -> None:
             id="A2",
             label='Set requested text in [e2] text field "Editor"',
             action_type="set_ui_text",
-            arguments={"element_id": "e2", "text": "سلام دنیا"},
+            arguments={"element_id": "e2", "text": "Hello world"},
         ),
         ActionCandidate(id="A3", label="Done", action_type="done"),
     ]
 
     state_text = (
-        "USER GOAL\nنوت را باز کن و بنویس سلام دنیا\n\n"
+        "USER GOAL\nOpen notes and write Hello world\n\n"
         "CURRENT STEP\n2 / 24\n\n"
         "AVAILABLE ACTIONS\n[A1] Activate [e1] button \"New\"\n"
         "[A2] Set requested text in [e2] text field \"Editor\"\n"
@@ -56,7 +56,7 @@ def test_mock_laya_agent_app_launch_selection() -> None:
     ]
 
     state_text = (
-        "USER GOAL\nکیت را باز کن\n\n"
+        "USER GOAL\nOpen kate\n\n"
         "CURRENT STEP\n1 / 24\n\n"
         "AVAILABLE ACTIONS\n[A1] Open application: kate\n[A2] Open application: dolphin\n[A3] Done"
     )
@@ -102,7 +102,7 @@ def test_mock_laya_agent_done_after_action() -> None:
 
     # History indicates an action succeeded
     state_text = (
-        "USER GOAL\nکیت را باز کن\n\n"
+        "USER GOAL\nOpen kate\n\n"
         "CURRENT STEP\n2 / 24\n\n"
         "ACTION HISTORY\n1. Open application: kate -> success\n\n"
         "AVAILABLE ACTIONS\n[A1] Activate [e1] button \"Save\"\n[A2] Done"
@@ -122,7 +122,7 @@ def test_laya_decision_agent_missing_dir_safe_fallback() -> None:
         ActionCandidate(id="A1", label="Open Kate", action_type="open_app", arguments={"app_name": "kate"}),
         ActionCandidate(id="A2", label="Done", action_type="done"),
     ]
-    state_text = "USER GOAL\nکیت را باز کن\n\nCURRENT STEP\n1 / 24\n\nAVAILABLE ACTIONS\n[A1] Open Kate\n[A2] Done"
+    state_text = "USER GOAL\nOpen kate\n\nCURRENT STEP\n1 / 24\n\nAVAILABLE ACTIONS\n[A1] Open Kate\n[A2] Done"
 
     dec = agent.predict_action(state_text, candidates)
     assert dec.selected_id in ("A1", "A2")

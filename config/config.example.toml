@@ -3,13 +3,15 @@
 
 [assistant]
 name = "Nido"
-language = "fa"
+language = "en"
 
 [hotkey]
-# Push-to-talk key. Default is F9.
+# Push-to-talk / Realtime dual-mode key. Default is F9.
 key = "KEY_F9"
 # Optional evdev device path, e.g. "/dev/input/event3". Empty string enables auto-discovery.
 device = ""
+# Duration in milliseconds to distinguish single press (tap) from hold
+mode_threshold_ms = 300
 
 [audio]
 # Optional sounddevice device name or index. Empty string uses default input device.
@@ -17,6 +19,8 @@ device = ""
 sample_rate = 16000
 channels = 1
 max_seconds = 30
+# In-memory pre-buffer duration in milliseconds to prevent lost speech at keypress
+prebuffer_ms = 400
 
 [ui]
 # Position on screen: "top-right", "top-left", "bottom-right", "bottom-left"
@@ -27,9 +31,24 @@ timeout_ms = 4000
 compact = false
 
 [stt]
-# Local directory for Shenava Koochik sherpa-onnx model
-model_dir = "~/.local/share/nido/models/shenava"
-threads = 4
+# Local directory for sherpa-onnx English streaming zipformer model
+model_dir = "~/.local/share/nido/models/sherpa-onnx-streaming-zipformer-en-2023-06-26"
+threads = 2
+provider = "cpu"
+decoding_method = "greedy_search"
+enable_endpoint_detection = true
+rule1_min_trailing_silence = 0.8
+rule2_min_trailing_silence = 0.6
+rule3_min_utterance_length = 20.0
+
+[realtime]
+enabled = true
+max_pending_commands = 8
+partial_update_interval_ms = 80
+finalization_timeout_ms = 1500
+show_transcript_history = true
+transcript_history_size = 5
+dispatch_stable_partials = false
 
 [laya]
 # Local directory for Laya multilingual MLX model

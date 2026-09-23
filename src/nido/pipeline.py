@@ -16,7 +16,7 @@ from nido.desktop.input import detect_input_backend
 from nido.events import EventBus, PipelineEvent, PipelineStage
 from nido.laya.agent import LayaDecisionAgent, MockLayaAgent
 from nido.logging import get_logger
-from nido.stt.shenava import SpeechRecognizer
+from nido.stt.zipformer_en import StreamingSTT, ZipformerStreamingSTT
 from nido.tools.registry import ToolRegistry
 
 logger = get_logger("nido.pipeline")
@@ -27,8 +27,9 @@ class PipelineResult:
     """Structured result of processing an audio voice command."""
 
     success: bool
-    heard_persian: str = ""
-    translated_english: str = ""
+    transcript: str = ""
+    heard_persian: str = ""  # Backward-compat alias for transcript
+    translated_english: str = ""  # Deprecated
     planned_tools: List[Any] = field(default_factory=list)
     executed_results: List[Dict[str, Any]] = field(default_factory=list)
     timings: Dict[str, float] = field(default_factory=dict)
@@ -36,12 +37,12 @@ class PipelineResult:
 
 
 class AssistantPipeline:
-    """Orchestrates audio capture, Persian STT transcription, and Laya multi-step agent execution."""
+    """Orchestrates audio capture, English streaming STT, and Laya multi-step agent execution."""
 
     def __init__(
         self,
         config: Config,
-        stt: SpeechRecognizer,
+        stt: Optional[Any] = None,
         desktop_agent: Optional[DesktopAgent] = None,
         laya_agent: Optional[Any] = None,
         registry: Optional[ToolRegistry] = None,
@@ -51,14 +52,13 @@ class AssistantPipeline:
         router: Optional[Any] = None,
     ) -> None:
         self.config = config
-        self.stt = stt
+        self.stt = stt or ZipformerStreamingSTT(config.stt)
         self.registry = registry or ToolRegistry()
         self.event_bus = event_bus or EventBus()
         self.current_stage = PipelineStage.IDLE
 
         self.desktop_agent = desktop_agent
         if self.desktop_agent is None:
-            # Initialize Laya agent
             decision_agent = laya_agent
             if decision_agent is None and hasattr(self.config, "laya") and self.config.laya.enabled:
                 decision_agent = LayaDecisionAgent(self.config.laya)
@@ -91,7 +91,7 @@ class AssistantPipeline:
         self.event_bus.emit(event)
 
     def process_audio(self, audio: np.ndarray, sample_rate: int = 16000) -> PipelineResult:
-        """Process a captured audio recording through Persian STT and Laya multi-step agent."""
+        """Process a captured audio recording through English STT and Laya multi-step agent."""
         start_total = time.time()
         timings: Dict[str, float] = {}
 
@@ -112,11 +112,16 @@ class AssistantPipeline:
 
         timings["audio_duration"] = round(duration, 3)
 
-        # 2. Persian STT Stage
-        self._emit(PipelineStage.TRANSCRIBING, "Transcribing Persian speech...")
+        # 2. English STT Stage
+        self._emit(PipelineStage.TRANSCRIBING, "Transcribing English speech...")
         t_stt_start = time.time()
         try:
-            persian_text = self.stt.transcribe(audio, sample_rate=sample_rate).strip()
+            if hasattr(self.stt, "transcribe_waveform"):
+                transcript = self.stt.transcribe_waveform(audio, sample_rate=sample_rate).strip()
+            elif hasattr(self.stt, "transcribe"):
+                transcript = self.stt.transcribe(audio, sample_rate=sample_rate).strip()
+            else:
+                transcript = ""
             timings["stt"] = round(time.time() - t_stt_start, 3)
         except Exception as e:
             timings["stt"] = round(time.time() - t_stt_start, 3)
@@ -126,7 +131,7 @@ class AssistantPipeline:
             self._emit(PipelineStage.IDLE, "Ready.")
             return PipelineResult(success=False, error=err_msg, timings=timings)
 
-        if not persian_text:
+        if not transcript:
             msg = "No speech detected in audio."
             self._emit(PipelineStage.ERROR, msg, {"error": msg, "timings": timings})
             self._emit(PipelineStage.IDLE, "Ready.")
@@ -134,15 +139,14 @@ class AssistantPipeline:
 
         self._emit(
             PipelineStage.TRANSCRIBING,
-            f"Heard: '{persian_text}'",
-            {"persian_text": persian_text, "timings": timings},
+            f"Heard: '{transcript}'",
+            {"text": transcript, "transcript": transcript, "heard_persian": transcript, "timings": timings},
         )
 
         # 3. Unified Laya-MLX Multi-Step Desktop Agent Loop
-        # Every command enters the iterative agent architecture directly with original Persian text
         t_desk_start = time.time()
         desktop_res: DesktopAgentResult = self.desktop_agent.execute_goal(
-            original_persian=persian_text,
+            goal=transcript,
         )
         timings["agent_loop"] = round(time.time() - t_desk_start, 3)
         timings["total"] = round(time.time() - start_total, 3)
@@ -152,7 +156,9 @@ class AssistantPipeline:
             stage,
             desktop_res.message,
             {
-                "persian_text": persian_text,
+                "text": transcript,
+                "transcript": transcript,
+                "heard_persian": transcript,
                 "executed_results": desktop_res.history,
                 "steps": desktop_res.steps,
                 "timings": timings,
@@ -162,7 +168,8 @@ class AssistantPipeline:
 
         return PipelineResult(
             success=desktop_res.success,
-            heard_persian=persian_text,
+            transcript=transcript,
+            heard_persian=transcript,
             executed_results=desktop_res.history,
             timings=timings,
             error=desktop_res.error,

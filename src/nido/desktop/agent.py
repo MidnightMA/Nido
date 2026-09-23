@@ -66,8 +66,7 @@ class DesktopAgent:
         translated_command: str = "",
     ) -> DesktopAgentResult:
         """Execute a multi-step task using iterative Laya-MLX decisions."""
-        # Use Persian command as authoritative goal
-        user_goal = original_persian or goal or translated_command
+        user_goal = goal or original_persian or translated_command
         limit = max_steps or self.config.max_steps
         action_history: List[Dict[str, Any]] = []
         prev_snapshot: Optional[DesktopSnapshot] = None
@@ -111,15 +110,26 @@ class DesktopAgent:
                     step += 1
                     continue
                 else:
-                    msg = f"Accessibility unavailable for window: '{snapshot.active_window}'."
-                    self._emit(PipelineStage.ERROR, msg, {"error": msg})
-                    return DesktopAgentResult(
-                        success=False,
-                        message=msg,
-                        steps=step_num,
-                        history=action_history,
-                        error="unsupported_accessibility",
+                    candidates = self.candidate_builder.build_candidates(
+                        goal=user_goal,
+                        snapshot=snapshot,
+                        registry=self.registry,
+                        action_history=action_history,
                     )
+                    has_static = any(
+                        c.action_type in ("open_app", "open_url", "search_web", "set_volume", "play_pause")
+                        for c in candidates
+                    )
+                    if not has_static:
+                        msg = f"Accessibility unavailable for window: '{snapshot.active_window}'."
+                        self._emit(PipelineStage.ERROR, msg, {"error": msg})
+                        return DesktopAgentResult(
+                            success=False,
+                            message=msg,
+                            steps=step_num,
+                            history=action_history,
+                            error="unsupported_accessibility",
+                        )
 
             diff_msg = compute_snapshot_diff(prev_snapshot, snapshot)
             logger.debug(f"Snapshot diff: {diff_msg}")

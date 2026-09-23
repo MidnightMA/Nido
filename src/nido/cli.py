@@ -6,18 +6,27 @@ import argparse
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 from nido import __version__
+from nido.audio.capture import MicrophoneCapture
 from nido.audio.recorder import AudioRecorder
 from nido.config import Config, load_config
-from nido.events import EventBus, PipelineStage
+from nido.events import EventBus, PipelineEvent, PipelineStage
 from nido.hotkey.evdev_backend import EvdevHotkeyBackend, MockHotkeyBackend
 from nido.logging import get_logger, setup_logging
 from nido.models.manager import ModelManager
 from nido.pipeline import AssistantPipeline
-from nido.stt.shenava import MockSpeechRecognizer, ShenavaSherpaRecognizer
+from nido.realtime.controller import RealtimeController
+from nido.stt.zipformer_en import (
+    MockStreamingSTT,
+    StreamingSTT,
+    ZipformerStreamingSTT,
+)
 from nido.tools import build_default_registry
 
 logger = get_logger("nido.cli")
@@ -30,7 +39,7 @@ def cmd_models_status(config: Config) -> int:
     print("Nido Offline Models Status:")
     print("-" * 50)
 
-    # Shenava STT
+    # STT
     stt = statuses.get("stt")
     if stt:
         state_icon = "✓" if stt.installed else "✗"
@@ -96,7 +105,7 @@ def cmd_tools_list(config: Config) -> int:
 
 
 def cmd_test_stt(config: Config, wav_path: str) -> int:
-    """Transcribe a local WAV audio file using Shenava STT."""
+    """Transcribe a local WAV audio file using English Zipformer STT."""
     audio_path = Path(wav_path).expanduser().resolve()
     if not audio_path.is_file():
         print(f"Error: File not found: {wav_path}", file=sys.stderr)
@@ -106,7 +115,6 @@ def cmd_test_stt(config: Config, wav_path: str) -> int:
         import soundfile as sf
     except ImportError:
         import wave
-        import numpy as np
 
         with wave.open(str(audio_path), "rb") as wf:
             sr = wf.getframerate()
@@ -119,13 +127,135 @@ def cmd_test_stt(config: Config, wav_path: str) -> int:
     manager = ModelManager(config)
     statuses = manager.get_status()
     if statuses["stt"].installed:
-        recognizer = ShenavaSherpaRecognizer(config.stt.model_dir, threads=config.stt.threads)
+        recognizer: StreamingSTT = ZipformerStreamingSTT(config.stt)
     else:
-        print("Note: Shenava model not installed; using mock recognizer.")
-        recognizer = MockSpeechRecognizer()
+        print("Note: Zipformer model not installed; using mock recognizer.")
+        recognizer = MockStreamingSTT()
 
-    result = recognizer.transcribe(audio_data, sample_rate=sr)
+    result = recognizer.transcribe_waveform(audio_data, sample_rate=sr)
     print(f"Transcription: {result}")
+    return 0
+
+
+def cmd_test_stt_live(config: Config) -> int:
+    """Open microphone and stream real-time English speech transcription to terminal."""
+    manager = ModelManager(config)
+    if manager.get_status()["stt"].installed:
+        stt: StreamingSTT = ZipformerStreamingSTT(config.stt)
+    else:
+        print("Note: Zipformer model not installed; using mock streaming recognizer.")
+        stt = MockStreamingSTT(["open notes", "create a new note", "write hello world"])
+
+    capture = MicrophoneCapture(
+        device=config.audio.device,
+        target_sr=config.audio.sample_rate,
+        chunk_duration_ms=50,
+        prebuffer_ms=config.audio.prebuffer_ms,
+    )
+
+    print("🎙 Opening microphone for streaming English speech recognition...")
+    print("Speak commands into your microphone. Press Ctrl+C to exit.\n")
+
+    stt.start_session()
+    last_partial = ""
+
+    def on_chunk(chunk: np.ndarray, sr: int) -> None:
+        nonlocal last_partial
+        stt.feed_audio(chunk, sr)
+        if stt.is_endpoint():
+            final = stt.finalize().strip()
+            if final:
+                print(f"\r\033[K[FINAL] {final}\n", flush=True)
+            stt.reset_utterance()
+            last_partial = ""
+        else:
+            partial = stt.get_partial_text().strip()
+            if partial and partial != last_partial:
+                last_partial = partial
+                print(f"\r\033[K[LIVE]  {partial}", end="", flush=True)
+
+    capture.add_listener(on_chunk)
+    capture.start()
+
+    stop_flag = False
+
+    def _sig_int(sig: int, frame: object) -> None:
+        nonlocal stop_flag
+        stop_flag = True
+
+    signal.signal(signal.SIGINT, _sig_int)
+    signal.signal(signal.SIGTERM, _sig_int)
+
+    try:
+        while not stop_flag:
+            time.sleep(0.1)
+    finally:
+        capture.stop()
+        stt.stop_session()
+        print("\nLive STT stopped.")
+    return 0
+
+
+def cmd_test_realtime(config: Config) -> int:
+    """Launch interactive realtime voice mode in terminal without requiring F9 hotkey."""
+    print("🎙 Starting Nido Realtime Voice Mode in terminal...")
+    print("Commands will be recognized and queued to DesktopAgent automatically.")
+    print("Press Ctrl+C to stop.\n")
+
+    event_bus = EventBus()
+
+    def _on_event(event: PipelineEvent) -> None:
+        stage = event.stage
+        if stage == PipelineStage.STT_PARTIAL:
+            partial = event.data.get("text", "")
+            print(f"\r\033[K[LIVE]    {partial}", end="", flush=True)
+        elif stage == PipelineStage.STT_FINAL:
+            final = event.data.get("text", "")
+            print(f"\r\033[K[FINAL]   {final}\n", flush=True)
+        elif stage == PipelineStage.COMMAND_QUEUED:
+            print(f"[QUEUED]  Task {event.data.get('task_id')}: '{event.data.get('goal')}' (queue size: {event.data.get('queue_size')})")
+        elif stage == PipelineStage.COMMAND_STARTED:
+            print(f"[EXEC]    Starting Task {event.data.get('task_id')}: '{event.data.get('goal')}'")
+        elif stage == PipelineStage.COMMAND_COMPLETED:
+            print(f"[DONE]    Completed Task {event.data.get('task_id')}")
+        elif stage == PipelineStage.COMMAND_FAILED:
+            print(f"[FAILED]  Task {event.data.get('task_id')}: {event.data.get('error')}")
+
+    event_bus.subscribe(_on_event)
+
+    manager = ModelManager(config)
+    stt: StreamingSTT
+    if manager.get_status()["stt"].installed:
+        stt = ZipformerStreamingSTT(config.stt)
+    else:
+        print("Note: Zipformer model not installed; using mock streaming recognizer.")
+        stt = MockStreamingSTT(["open notes", "create a new note", "write hello world"])
+
+    pipeline = AssistantPipeline(config=config, stt=stt, event_bus=event_bus)
+    controller = RealtimeController(
+        config=config,
+        stt=stt,
+        desktop_agent=pipeline.desktop_agent,
+        event_bus=event_bus,
+    )
+
+    controller.start_realtime()
+
+    stop_flag = False
+
+    def _sig_int(sig: int, frame: object) -> None:
+        nonlocal stop_flag
+        stop_flag = True
+
+    signal.signal(signal.SIGINT, _sig_int)
+    signal.signal(signal.SIGTERM, _sig_int)
+
+    try:
+        while not stop_flag:
+            time.sleep(0.1)
+    finally:
+        controller.stop_realtime()
+        print("\nRealtime mode stopped.")
     return 0
 
 
@@ -138,64 +268,74 @@ def cmd_accessibility_status(config: Config) -> int:
     input_b = detect_input_backend(config.desktop.input_backend)
     available = backend.is_available()
 
-    print("Nido Desktop Accessibility Status:")
+    print("Desktop Accessibility Diagnostics:")
     print("-" * 50)
-    print(f"AT-SPI2 Available:     {'✓ YES' if available else '✗ NO (Accessibility bus unreachable)'}")
-    snapshot = backend.get_desktop_snapshot(max_elements=10)
-    print(f"Session Type:          {snapshot.session_type}")
-    print(f"Desktop Environment:   {snapshot.desktop_name}")
-    print(f"Active Application:    {snapshot.active_application or 'None'}")
-    print(f"Active Window:         {snapshot.active_window or 'None'}")
-    print(f"Input Backend:         {type(input_b).__name__}")
+    print(f"AT-SPI2 Accessible:   {'✓ Available' if available else '✗ Unavailable'}")
+    print(f"Session Type:         {backend.get_session_type()}")
+    print(f"Desktop Environment:  {backend.get_desktop_environment()}")
+    print(f"Active Input Backend: {type(input_b).__name__}")
     print("-" * 50)
+
     if not available:
-        print("To enable AT-SPI2 on Ubuntu/Kubuntu:")
-        print("  sudo apt install at-spi2-core libatk-adaptor")
+        print("Hint: Ensure AT-SPI2 is enabled in your desktop environment:")
         print("  gsettings set org.gnome.desktop.interface toolkit-accessibility true")
-    return 0 if available else 1
+        return 1
+    return 0
 
 
 def cmd_accessibility_tree(config: Config) -> int:
-    """Print the accessible element tree of the currently active window."""
+    """Print hierarchical accessibility tree for the active window."""
     from nido.accessibility.atspi import AtspiBackend
-    from nido.accessibility.snapshot import format_snapshot_for_prompt
 
     backend = AtspiBackend()
     if not backend.is_available():
-        print("Error: AT-SPI2 accessibility subsystem is not available.", file=sys.stderr)
+        print("Error: AT-SPI2 accessibility is not available.", file=sys.stderr)
         return 1
 
     snapshot = backend.get_desktop_snapshot(
         max_elements=config.desktop.max_elements,
         max_depth=config.desktop.max_depth,
+        include_invisible=config.desktop.include_invisible,
+        include_offscreen=config.desktop.include_offscreen,
     )
-    print(format_snapshot_for_prompt(snapshot))
+
+    print(f"Active Application: {snapshot.active_application or 'None'}")
+    print(f"Active Window:      {snapshot.active_window or 'None'}")
+    print(f"Total Elements:     {len(snapshot.elements)}")
+    print("=" * 60)
+
+    for el in snapshot.elements:
+        indent = "  " * el.depth
+        states_str = f"[{','.join(el.states)}]" if el.states else ""
+        actions_str = f"actions=({','.join(el.actions)})" if el.actions else ""
+        name_str = f'"{el.name}"' if el.name else "<unnamed>"
+        print(f"{indent}[{el.id}] {el.role} {name_str} {states_str} {actions_str}")
     return 0
 
 
 def cmd_accessibility_inspect(config: Config) -> int:
-    """Inspect detailed properties of accessible elements in the active window."""
+    """Inspect detailed properties of all visible elements in the active window."""
     from nido.accessibility.atspi import AtspiBackend
 
     backend = AtspiBackend()
-    if not backend.is_available():
-        print("Error: AT-SPI2 accessibility subsystem is not available.", file=sys.stderr)
-        return 1
+    snapshot = backend.get_desktop_snapshot(
+        max_elements=config.desktop.max_elements,
+        max_depth=config.desktop.max_depth,
+    )
 
-    snapshot = backend.get_desktop_snapshot(max_elements=50)
-    print(f"Inspecting active window: '{snapshot.active_window}' (App: {snapshot.active_application})")
-    print(f"Total elements: {len(snapshot.elements)}")
+    print(f"Detailed Inspection for '{snapshot.active_window}':")
     print("=" * 60)
     for el in snapshot.elements:
-        print(f"[{el.id}] Role: {el.role:<15} Name: \"{el.name}\"")
-        if el.description:
-            print(f"     Description: {el.description}")
+        print(f"Element [{el.id}]:")
+        print(f"     Role:        {el.role}")
+        print(f"     Name:        {el.name}")
+        print(f"     Description: {el.description}")
+        print(f"     States:      {el.states}")
+        print(f"     Actions:     {el.actions}")
         if el.value:
             print(f"     Value:       {el.value}")
-        if el.states:
-            print(f"     States:      {', '.join(el.states)}")
-        if el.actions:
-            print(f"     Actions:     {', '.join(el.actions)}")
+        if el.text_content:
+            print(f"     Text:        {el.text_content[:60]}")
         if el.bounds:
             print(f"     Bounds:      x={el.bounds[0]}, y={el.bounds[1]}, w={el.bounds[2]}, h={el.bounds[3]}")
         print()
@@ -203,15 +343,14 @@ def cmd_accessibility_inspect(config: Config) -> int:
 
 
 def cmd_test_laya(config: Config, goal: str) -> int:
-    """Test Laya action candidate selection on Persian text with mock/real state."""
+    """Test Laya action candidate selection for an English goal with mock/real state."""
     from nido.accessibility.models import DesktopSnapshot, UIElement
     from nido.desktop.candidates import CandidateBuilder
     from nido.laya.agent import LayaDecisionAgent, MockLayaAgent
 
-    print(f"Testing Laya decision selection for Persian goal: '{goal}'")
+    print(f"Testing Laya decision selection for goal: '{goal}'")
     print("=" * 60)
 
-    # Create sample snapshot with realistic Kate editor
     snapshot = DesktopSnapshot(
         session_type="wayland",
         desktop_name="KDE Plasma",
@@ -234,7 +373,6 @@ def cmd_test_laya(config: Config, goal: str) -> int:
         print(f"  [{c.id}] {c.label} ({c.action_type})")
     print()
 
-    # Load agent or mock
     manager = ModelManager(config)
     laya_installed = manager.get_status()["laya"].installed
     if laya_installed:
@@ -295,7 +433,7 @@ def cmd_test_desktop(config: Config, command: str) -> int:
 
     print(f"Testing desktop interaction for goal: '{command}'")
     print("=" * 60)
-    res = agent.execute_goal(original_persian=command)
+    res = agent.execute_goal(goal=command)
     print("=" * 60)
     status_str = "✓ SUCCESS" if res.success else "✗ FAILED"
     print(f"Outcome: {status_str} in {res.steps} step(s)")
@@ -309,7 +447,7 @@ def cmd_test_desktop(config: Config, command: str) -> int:
 
 
 def run_daemon(config: Config, debug: bool = False) -> int:
-    """Start Nido push-to-talk daemon with PySide6 overlay."""
+    """Start Nido push-to-talk and realtime daemon with PySide6 overlay."""
     logger.info(f"Starting Nido daemon v{__version__}...")
 
     # Check model status
@@ -323,11 +461,11 @@ def run_daemon(config: Config, debug: bool = False) -> int:
 
     # Initialize STT
     if manager.get_status()["stt"].installed:
-        stt = ShenavaSherpaRecognizer(config.stt.model_dir, threads=config.stt.threads)
+        stt: StreamingSTT = ZipformerStreamingSTT(config.stt)
     else:
-        stt = MockSpeechRecognizer()
+        stt = MockStreamingSTT()
 
-    # Initialize Registry, Laya Agent, and Pipeline
+    # Initialize Pipeline & Desktop Agent
     registry = build_default_registry(config)
     event_bus = EventBus()
     pipeline = AssistantPipeline(
@@ -337,85 +475,29 @@ def run_daemon(config: Config, debug: bool = False) -> int:
         event_bus=event_bus,
     )
 
-    # Initialize Audio Recorder
-    recorder = AudioRecorder(
-        device=config.audio.device,
-        target_sr=config.audio.sample_rate,
-        max_seconds=config.audio.max_seconds,
+    # Initialize Realtime Controller
+    controller = RealtimeController(
+        config=config,
+        stt=stt,
+        desktop_agent=pipeline.desktop_agent,
+        event_bus=event_bus,
     )
 
     # Initialize PySide6 GUI
     try:
-        from PySide6.QtCore import QObject, Signal
         from PySide6.QtWidgets import QApplication
         from nido.ui.overlay import NidoOverlay
-        from nido.ui.worker import PipelineWorker
+        from nido.ui.worker import EventBridge
 
         app = QApplication(sys.argv)
         overlay = NidoOverlay(config.ui)
+        bridge = EventBridge(event_bus)
+        bridge.event_received.connect(overlay.update_stage)
     except Exception as e:
         logger.warning(f"Could not initialize PySide6 GUI ({e}). Running in headless console mode.")
         app = None
         overlay = None
-
-    # Push-to-talk event coordination
-    active_worker: Optional[PipelineWorker] = None
-
-    class TriggerBridge(QObject):
-        sig_press = Signal()
-        sig_release = Signal(object)
-
-    bridge = TriggerBridge() if app is not None else None
-
-    def _on_gui_press() -> None:
-        if overlay is not None:
-            overlay.set_listening()
-
-    def _on_gui_release(audio_data: object) -> None:
-        nonlocal active_worker
-        import numpy as np
-
-        if not isinstance(audio_data, np.ndarray) or len(audio_data) == 0:
-            if overlay is not None:
-                overlay.update_stage(
-                    PipelineStage.ERROR.value,
-                    "No audio recorded",
-                    {"error": "Empty recording"},
-                )
-            return
-
-        worker = PipelineWorker(pipeline, audio_data)
-        active_worker = worker
-        if overlay is not None:
-            worker.stage_changed.connect(overlay.update_stage)
-        worker.start()
-
-    if bridge is not None:
-        bridge.sig_press.connect(_on_gui_press)
-        bridge.sig_release.connect(_on_gui_release)
-
-    def on_hotkey_press() -> None:
-        logger.debug("Hotkey press detected.")
-        try:
-            recorder.start()
-            if bridge is not None:
-                bridge.sig_press.emit()
-            else:
-                print("🎙 [LISTENING...]")
-        except Exception as e:
-            logger.error(f"Error on hotkey press: {e}")
-
-    def on_hotkey_release() -> None:
-        logger.debug("Hotkey release detected.")
-        try:
-            audio = recorder.stop()
-            if bridge is not None:
-                bridge.sig_release.emit(audio)
-            else:
-                print("🧠 [PROCESSING...]")
-                pipeline.process_audio(audio)
-        except Exception as e:
-            logger.error(f"Error on hotkey release: {e}")
+        bridge = None
 
     # Start hotkey listener
     from nido.hotkey.evdev_backend import check_input_permissions
@@ -423,7 +505,7 @@ def run_daemon(config: Config, debug: bool = False) -> int:
     if not has_perm:
         print("!" * 60)
         print(f"Warning: {perm_msg}")
-        print("Push-to-talk (F9) requires access to /dev/input/event*.")
+        print("Dual-mode hotkey (F9) requires access to /dev/input/event*.")
         print("Run: sudo usermod -aG input $USER")
         print("Note: You must log out and log back in for the group to activate.")
         print("!" * 60)
@@ -431,21 +513,27 @@ def run_daemon(config: Config, debug: bool = False) -> int:
     hotkey_backend: object
     try:
         hotkey_backend = EvdevHotkeyBackend(
-            on_press=on_hotkey_press,
-            on_release=on_hotkey_release,
+            on_press=controller.on_f9_press,
+            on_release=controller.on_f9_release,
             key_name=config.hotkey.key,
             device_path=config.hotkey.device,
         )
         hotkey_backend.start()
     except Exception as e:
         logger.warning(f"Could not start evdev hotkey backend: {e}. Falling back to mock hotkey.")
-        hotkey_backend = MockHotkeyBackend(on_press=on_hotkey_press, on_release=on_hotkey_release)
+        hotkey_backend = MockHotkeyBackend(
+            on_press=controller.on_f9_press,
+            on_release=controller.on_f9_release,
+        )
         hotkey_backend.start()
 
-    # Handle OS termination signals
     def _sig_handler(sig: int, frame: object) -> None:
         logger.info("Termination signal received. Shutting down Nido...")
         hotkey_backend.stop()
+        if controller.is_realtime_active:
+            controller.stop_realtime()
+        if bridge is not None:
+            bridge.cleanup()
         if app is not None:
             app.quit()
         else:
@@ -454,7 +542,7 @@ def run_daemon(config: Config, debug: bool = False) -> int:
     signal.signal(signal.SIGINT, _sig_handler)
     signal.signal(signal.SIGTERM, _sig_handler)
 
-    print(f"Nido is running. Hold {config.hotkey.key} to speak Persian commands.")
+    print(f"Nido is running. Hold {config.hotkey.key} for push-to-talk, or tap {config.hotkey.key} for realtime mode.")
 
     if app is not None:
         return app.exec()
@@ -467,7 +555,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     """CLI argument parser and dispatcher."""
     parser = argparse.ArgumentParser(
         prog="nido",
-        description="Nido: Lightweight, fully offline Persian voice command assistant for Linux/KDE.",
+        description="Nido: Lightweight, fully offline English voice-controlled desktop assistant for Linux/KDE.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
@@ -494,15 +582,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     access_sub.add_parser("tree", help="Print accessible tree of active window.")
     access_sub.add_parser("inspect", help="Inspect detailed element properties in active window.")
 
-    # standalone diagnostic commands
-    stt_p = subparsers.add_parser("test-stt", help="Test Persian STT on a WAV file.")
+    # diagnostic commands
+    stt_p = subparsers.add_parser("test-stt", help="Test English Zipformer STT on a WAV file.")
     stt_p.add_argument("file", type=str, help="Path to input audio file.")
 
-    laya_p = subparsers.add_parser("test-laya", help="Test Laya action candidate selection for a Persian goal.")
-    laya_p.add_argument("goal", type=str, help="Persian goal (e.g. 'نوت را باز کن و بنویس سلام دنیا').")
+    subparsers.add_parser("test-stt-live", help="Open microphone and test live streaming STT.")
+    subparsers.add_parser("test-realtime", help="Run interactive realtime voice mode in terminal.")
+
+    laya_p = subparsers.add_parser("test-laya", help="Test Laya action candidate selection for an English goal.")
+    laya_p.add_argument("goal", type=str, help="English goal (e.g. 'Open notes and write Hello world').")
 
     desk_p = subparsers.add_parser("test-desktop", help="Test multi-step desktop agent interaction.")
-    desk_p.add_argument("goal", type=str, help="Desktop interaction goal in Persian.")
+    desk_p.add_argument("goal", type=str, help="Desktop interaction goal in English.")
 
     args = parser.parse_args(argv)
 
@@ -532,6 +623,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     elif args.subcommand == "test-stt":
         return cmd_test_stt(config, args.file)
 
+    elif args.subcommand == "test-stt-live":
+        return cmd_test_stt_live(config)
+
+    elif args.subcommand == "test-realtime":
+        return cmd_test_realtime(config)
+
     elif args.subcommand == "test-laya":
         return cmd_test_laya(config, args.goal)
 
@@ -539,7 +636,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_test_desktop(config, args.goal)
 
     else:
-        # Default: run push-to-talk daemon
+        # Default: run dual-mode daemon
         return run_daemon(config, debug=args.debug)
 
     return 0

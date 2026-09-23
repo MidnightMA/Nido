@@ -22,6 +22,16 @@ class PipelineStage(str, Enum):
     BLOCKED = "blocked"
     DONE = "done"
     ERROR = "error"
+    # Realtime & Streaming STT events
+    REALTIME_STARTED = "realtime_started"
+    REALTIME_STOPPING = "realtime_stopping"
+    REALTIME_STOPPED = "realtime_stopped"
+    STT_PARTIAL = "stt_partial"
+    STT_FINAL = "stt_final"
+    COMMAND_QUEUED = "command_queued"
+    COMMAND_STARTED = "command_started"
+    COMMAND_COMPLETED = "command_completed"
+    COMMAND_FAILED = "command_failed"
 
 
 @dataclass

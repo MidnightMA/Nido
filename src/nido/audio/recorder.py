@@ -69,8 +69,8 @@ class AudioRecorder:
         with self._lock:
             return self._recording
 
-    def start(self) -> None:
-        """Begin capturing microphone input into memory."""
+    def start(self, prebuffer: Optional[np.ndarray] = None) -> None:
+        """Begin capturing microphone input into memory, optionally prepending prebuffer."""
         with self._lock:
             if self._recording:
                 logger.warning("Recorder already running; start() ignored.")
@@ -80,6 +80,8 @@ class AudioRecorder:
                 raise AudioRecordingError("sounddevice is not available or audio system is missing.")
 
             self._chunks.clear()
+            if prebuffer is not None and len(prebuffer) > 0:
+                self._chunks.append(prebuffer.astype(np.float32).copy())
             self._recording = True
             self._start_time = time.time()
 

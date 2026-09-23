@@ -1,4 +1,4 @@
-"""Tests for full assistant pipeline orchestration with unified Laya agent."""
+"""Tests for full assistant pipeline orchestration with English streaming STT and Laya agent."""
 
 import numpy as np
 import pytest
@@ -10,7 +10,7 @@ from nido.desktop.input import MockInputBackend
 from nido.events import EventBus, PipelineEvent, PipelineStage
 from nido.laya.agent import MockLayaAgent
 from nido.pipeline import AssistantPipeline, PipelineResult
-from nido.stt.shenava import MockSpeechRecognizer
+from nido.stt.zipformer_en import MockStreamingSTT
 from nido.tools.registry import ToolRegistry
 from tests.test_desktop_agent import MockAccessibilityBackend
 
@@ -18,7 +18,7 @@ from tests.test_desktop_agent import MockAccessibilityBackend
 def test_full_pipeline_happy_path() -> None:
     config = Config()
     config.desktop.settle_delay_ms = 0
-    stt = MockSpeechRecognizer("کروم رو باز کن")
+    stt = MockStreamingSTT(["open chrome"])
 
     registry = ToolRegistry()
 
@@ -30,9 +30,19 @@ def test_full_pipeline_happy_path() -> None:
     recorded_stages = []
     event_bus.subscribe(lambda ev: recorded_stages.append(ev.stage))
 
+    desktop_agent = DesktopAgent(
+        config=config.desktop,
+        laya_agent=MockLayaAgent(config.laya),
+        accessibility=MockAccessibilityBackend(),
+        input_backend=MockInputBackend(),
+        registry=registry,
+        event_bus=event_bus,
+    )
+
     pipeline = AssistantPipeline(
         config=config,
         stt=stt,
+        desktop_agent=desktop_agent,
         registry=registry,
         event_bus=event_bus,
     )
@@ -42,7 +52,7 @@ def test_full_pipeline_happy_path() -> None:
     result = pipeline.process_audio(dummy_audio)
 
     assert result.success is True
-    assert result.heard_persian == "کروم رو باز کن"
+    assert result.transcript == "open chrome"
     assert len(result.executed_results) >= 1
 
     # Check stage event lifecycle
@@ -51,15 +61,13 @@ def test_full_pipeline_happy_path() -> None:
     assert PipelineStage.PLANNING in recorded_stages
     assert PipelineStage.INTERACTING in recorded_stages
     assert PipelineStage.DONE in recorded_stages
-    # Crucial: verify TRANSLATING is NOT in recorded stages
-    assert "translating" not in [s.value for s in recorded_stages]
 
 
 def test_pipeline_empty_audio() -> None:
     config = Config()
     pipeline = AssistantPipeline(
         config=config,
-        stt=MockSpeechRecognizer(),
+        stt=MockStreamingSTT(),
     )
 
     empty_audio = np.zeros(0, dtype=np.float32)
@@ -68,7 +76,7 @@ def test_pipeline_empty_audio() -> None:
     assert "No audio recorded" in result.error
 
 
-def test_pipeline_desktop_persian_text_entry() -> None:
+def test_pipeline_desktop_english_text_entry() -> None:
     config = Config()
     config.desktop.settle_delay_ms = 0
 
@@ -95,7 +103,7 @@ def test_pipeline_desktop_persian_text_entry() -> None:
 
     pipeline = AssistantPipeline(
         config=config,
-        stt=MockSpeechRecognizer("کیت رو باز کن و بنویس سلام دنیا"),
+        stt=MockStreamingSTT(["open kate and write hello world"]),
         desktop_agent=desktop_agent,
         event_bus=event_bus,
     )
@@ -104,10 +112,10 @@ def test_pipeline_desktop_persian_text_entry() -> None:
     result = pipeline.process_audio(audio)
 
     assert result.success is True
-    assert result.heard_persian == "کیت رو باز کن و بنویس سلام دنیا"
+    assert result.transcript == "open kate and write hello world"
     assert len(acc_backend.texts_set) == 1
-    # Verifies exact Persian text is preserved without translation
-    assert acc_backend.texts_set[0] == ("e1", "سلام دنیا")
+    # Verifies exact English text is preserved
+    assert acc_backend.texts_set[0] == ("e1", "hello world")
 
 
 def test_pipeline_tool_failure_does_not_crash() -> None:
@@ -119,16 +127,25 @@ def test_pipeline_tool_failure_does_not_crash() -> None:
     def failing_tool(app_name: str) -> dict:
         raise RuntimeError("Subprocess failed to launch")
 
+    acc_backend = MockAccessibilityBackend()
+    desktop_agent = DesktopAgent(
+        config=config.desktop,
+        laya_agent=MockLayaAgent(config.laya),
+        accessibility=acc_backend,
+        input_backend=MockInputBackend(),
+        registry=registry,
+    )
+
     pipeline = AssistantPipeline(
         config=config,
-        stt=MockSpeechRecognizer("کروم رو باز کن"),
+        stt=MockStreamingSTT(["open chrome"]),
+        desktop_agent=desktop_agent,
         registry=registry,
     )
 
     audio = np.zeros(16000, dtype=np.float32)
     result = pipeline.process_audio(audio)
 
-    # Pipeline returns gracefully without unhandled crash
-    assert result.heard_persian == "کروم رو باز کن"
+    assert result.transcript == "open chrome"
     assert len(result.executed_results) >= 1
     assert result.executed_results[0]["success"] is False

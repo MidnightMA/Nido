@@ -81,7 +81,7 @@ def test_desktop_agent_happy_path() -> None:
         registry=registry,
     )
 
-    result = agent.execute_goal("کیت را باز کن و بنویس hello")
+    result = agent.execute_goal("Open Kate and write hello")
 
     assert result.success is True
     assert len(backend.texts_set) == 1
@@ -89,8 +89,7 @@ def test_desktop_agent_happy_path() -> None:
     assert result.steps >= 1
 
 
-def test_desktop_agent_persian_literal_text_preservation() -> None:
-    # Test that Persian text payload is preserved literally without being translated to English
+def test_desktop_agent_english_literal_text_preservation() -> None:
     snap1 = DesktopSnapshot(
         active_application="Notes",
         active_window="Notes",
@@ -112,13 +111,13 @@ def test_desktop_agent_persian_literal_text_preservation() -> None:
     )
 
     result = agent.execute_goal(
-        original_persian="نوت را باز کن و بنویس سلام دنیا",
+        goal="Open Notes and write Hello, world!",
     )
 
     assert result.success is True
     assert len(backend.texts_set) == 1
-    # Must preserve exact Persian text 'سلام دنیا'
-    assert backend.texts_set[0] == ("e1", "سلام دنیا")
+    # Must preserve exact English literal text 'Hello, world!'
+    assert backend.texts_set[0] == ("e1", "Hello, world!")
 
 
 def test_desktop_agent_navigation_click() -> None:
@@ -143,7 +142,7 @@ def test_desktop_agent_navigation_click() -> None:
         registry=registry,
     )
 
-    result = agent.execute_goal("برو به Downloads")
+    result = agent.execute_goal("Go to Downloads")
     assert result.success is True
     assert ("e2", "click") in backend.actions_performed
 
@@ -168,7 +167,7 @@ def test_desktop_agent_unsupported_accessibility_detection() -> None:
         registry=registry,
     )
 
-    result = agent.execute_goal("روی دکمه کلیک کن")
+    result = agent.execute_goal("Click on button")
     assert result.success is False
     assert result.error == "unsupported_accessibility"
     assert "Accessibility unavailable for window" in result.message
@@ -189,7 +188,7 @@ def test_desktop_agent_unavailable_subsystem() -> None:
         registry=registry,
     )
 
-    result = agent.execute_goal("کیت را باز کن")
+    result = agent.execute_goal("Open kate")
     assert result.success is False
     assert result.error == "accessibility_unavailable"
 
@@ -219,12 +218,11 @@ def test_desktop_agent_stale_element_recovery() -> None:
         def predict_action(self, state_text, candidates):
             self.turn += 1
             if self.turn == 1:
-                # Return candidate with stale element_id not present in snap1!
                 return ActionDecision(selected_id="A_stale", confidence=0.9)
-            # Find candidate for e1
-            for c in candidates:
-                if c.element_id == "e1":
-                    return ActionDecision(selected_id=c.id, confidence=0.95)
+            elif self.turn == 2:
+                for c in candidates:
+                    if c.element_id == "e1":
+                        return ActionDecision(selected_id=c.id, confidence=0.95)
             done_cand = next((c for c in candidates if c.action_type == "done"), candidates[0])
             return ActionDecision(selected_id=done_cand.id, confidence=0.99)
 
@@ -241,7 +239,7 @@ def test_desktop_agent_stale_element_recovery() -> None:
         registry=registry,
     )
 
-    result = agent.execute_goal("ذخیره کن")
+    result = agent.execute_goal("Save it")
     assert result.success is True
     assert ("e1", "click") in backend.actions_performed
 
@@ -269,7 +267,7 @@ def test_desktop_agent_max_steps_exceeded() -> None:
         registry=ToolRegistry(),
     )
 
-    res = agent.execute_goal("انجام بده")
+    res = agent.execute_goal("Do it")
     assert res.success is False
     assert res.error == "max_steps_exceeded"
     assert res.steps == 3
@@ -311,12 +309,8 @@ def test_desktop_agent_calculator_workflow() -> None:
 
     result = agent.execute_goal("open calculator and calculate 2*95")
     assert result.success is True
-    # Must finish in <= 3 steps and not loop
     assert result.steps <= 3
-    # open_app should only be called ONCE
     open_app_count = sum(1 for h in result.history if h.get("action") == "open_app")
     assert open_app_count == 1
-    # calculation text should be entered
     assert len(backend.texts_set) == 1
     assert "2 * 95" in backend.texts_set[0][1]
-
