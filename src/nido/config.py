@@ -44,9 +44,9 @@ class UIConfig:
 
 @dataclass
 class STTConfig:
-    model_dir: str = "~/.local/share/nido/models/nemotron-speech-streaming-en-0.6b"
-    model_file: str = "nemotron-speech-streaming-en-0.6b.q8_0.gguf"
-    hf_repo_id: str = "nvidia/nemotron-speech-streaming-en-0.6b"
+    model_dir: str = "~/.local/share/nido/models/whisper"
+    model_file: str = "ggml-base.en-q5_1.bin"
+    hf_repo_id: str = "ggerganov/whisper.cpp"
     threads: int = 4
     provider: str = "cpu"
     decoding_method: str = "greedy_search"
@@ -196,7 +196,7 @@ def load_config(config_path: str | Path | None = None) -> Config:
     if "stt" in data and isinstance(data["stt"], dict):
         s = data["stt"]
         stt_model_dir = s.get("model_dir", config.stt.model_dir)
-        if any(k in stt_model_dir.lower() for k in ("20m", "shenava", "sherpa", "zipformer")):
+        if any(k in stt_model_dir.lower() for k in ("20m", "shenava", "sherpa", "zipformer", "nemotron")):
             stt_model_dir = config.stt.model_dir
         config.stt = STTConfig(
             model_dir=stt_model_dir,

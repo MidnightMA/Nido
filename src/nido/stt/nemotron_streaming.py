@@ -78,7 +78,7 @@ class NemotronStreamingSTT:
         self._partial_text: str = ""
         self._speech_detected: bool = False
         self._silence_duration_s: float = 0.0
-        self._silence_threshold: float = 0.012
+        self._silence_threshold: float = 0.003
         self._last_decode_time: float = 0.0
 
         self._load_engine()
@@ -114,6 +114,7 @@ class NemotronStreamingSTT:
             shutil.which("nemo-speech"),
             shutil.which("nemo-speech-streaming"),
             str(Path.home() / ".local/bin/nemo-speech"),
+            str(Path.home() / ".local/share/nemo-speech/bin/nemo-speech"),
             "/usr/local/bin/nemo-speech",
             "/usr/bin/nemo-speech",
             str(self.model_dir / "nemo-speech"),
@@ -251,7 +252,7 @@ class NemotronStreamingSTT:
 
         # 3. Throttled partial decoding fallback
         now = time.monotonic()
-        if (now - self._last_decode_time) >= 0.20:
+        if (now - self._last_decode_time) >= 1.2:
             self._last_decode_time = now
             if self._speech_detected and self._ctx is not None:
                 self._partial_text = self._decode_current_buffer(sample_rate)
@@ -262,7 +263,7 @@ class NemotronStreamingSTT:
             return ""
 
         full_audio = np.concatenate(self._audio_buffer)
-        if len(full_audio) < int(0.2 * sample_rate):
+        if len(full_audio) < int(0.4 * sample_rate):
             return self._partial_text
 
         if self._backend_type == "python_module" and hasattr(self._ctx, "transcribe"):
@@ -270,6 +271,13 @@ class NemotronStreamingSTT:
                 return str(self._ctx.transcribe(full_audio)).strip()
             except Exception as e:
                 logger.debug(f"NeMo-Speech.cpp transcribe error: {e}")
+        elif self._backend_type == "cli" and self._ctx:
+            try:
+                text = self.transcribe_waveform(full_audio, sample_rate)
+                if text:
+                    return text
+            except Exception as e:
+                logger.debug(f"CLI partial decode error: {e}")
 
         return self._partial_text
 
@@ -279,7 +287,11 @@ class NemotronStreamingSTT:
                 return str(self._ctx.get_text()).strip()
             except Exception:
                 pass
-        return self._partial_text.strip()
+        if self._partial_text:
+            return self._partial_text.strip()
+        if self._speech_detected:
+            return "Listening..."
+        return ""
 
     def is_endpoint(self) -> bool:
         """Detect trailing silence indicating speaker pause / command completion."""
@@ -387,24 +399,26 @@ class NemotronStreamingSTT:
                     int16_samples = np.clip(arr * 32767.0, -32768, 32767).astype(np.int16)
                     wf.writeframes(int16_samples.tobytes())
 
+                cmd = [
+                    str(self._ctx),
+                    "transcribe",
+                    temp_wav,
+                    "--model",
+                    str(self.model_path),
+                    "--format",
+                    "text",
+                    "--quiet",
+                ]
                 res = subprocess.run(
-                    [
-                        str(self._ctx),
-                        "transcribe",
-                        temp_wav,
-                        "--model",
-                        str(self.model_path),
-                        "--threads",
-                        str(self.threads),
-                    ],
+                    cmd,
                     capture_output=True,
                     text=True,
-                    timeout=15,
+                    timeout=30,
                 )
                 if res.returncode == 0 and res.stdout:
-                    lines = [ln.strip() for ln in res.stdout.strip().splitlines() if ln.strip()]
-                    if lines:
-                        return lines[-1]
+                    return res.stdout.strip()
+                else:
+                    logger.warning(f"nemo-speech failed (code={res.returncode}): {res.stderr}")
             except Exception as e:
                 logger.debug(f"CLI transcription execution error: {e}")
             finally:

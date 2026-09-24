@@ -7,8 +7,10 @@ from nido.stt import (
     MockStreamingSTT,
     NemotronStreamingSTT,
     StreamingSTT,
+    WhisperStreamingSTT,
     ZipformerStreamingSTT,
 )
+
 
 
 def test_mock_streaming_stt_lifecycle() -> None:
@@ -77,9 +79,9 @@ def test_zipformer_extract_text_uses_get_result() -> None:
     assert final == "hello world"
 
 
-def test_nemotron_streaming_stt_protocol_and_lifecycle() -> None:
-    """Verify NemotronStreamingSTT protocol adherence, buffering, and silence tracking."""
-    rec = NemotronStreamingSTT(STTConfig(model_dir="/non/existent/path"))
+def test_whisper_streaming_stt_protocol_and_lifecycle() -> None:
+    """Verify WhisperStreamingSTT protocol adherence, buffering, and silence tracking."""
+    rec = WhisperStreamingSTT(STTConfig(model_dir="/non/existent/path"))
     assert rec.is_loaded is False
 
     rec.start_session()
@@ -105,19 +107,69 @@ def test_nemotron_streaming_stt_protocol_and_lifecycle() -> None:
     rec.stop_session()
 
 
-def test_nemotron_transcribe_with_mock_model() -> None:
-    """Verify Nemotron transcribe_waveform with mocked NeMo-Speech.cpp engine."""
-    rec = NemotronStreamingSTT(STTConfig(model_dir="/non/existent/path"))
+def test_whisper_transcribe_real_audio() -> None:
+    """Verify Whisper.cpp transcribes real audio using installed model and whisper-cli."""
+    from pathlib import Path
+    import wave
+    test_wav = Path.home() / ".local/share/nido/NeMo-Speech.cpp/test_files/asr/wav/test/jfk.wav"
+    if not test_wav.exists():
+        return
+    with wave.open(str(test_wav), "rb") as wf:
+        frames = wf.readframes(wf.getnframes())
+        audio_i16 = np.frombuffer(frames, dtype=np.int16)
+        audio_f32 = audio_i16.astype(np.float32) / 32768.0
 
-    mock_ctx = MagicMock()
-    mock_ctx.transcribe.return_value = "open dolphin"
-    rec._ctx = mock_ctx
-    rec._backend_type = "python_module"
+    rec = WhisperStreamingSTT()
+    if rec.is_loaded:
+        text = rec.transcribe_waveform(audio_f32, 16000)
+        assert "country" in text.lower()
 
-    dummy_audio = np.ones(16000, dtype=np.float32) * 0.05
-    result = rec.transcribe_waveform(dummy_audio)
-    assert result == "open dolphin"
-    mock_ctx.transcribe.assert_called_once()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -38,7 +38,7 @@ def test_cli_models_status() -> None:
     print("\n" + out)
     assert code in (0, 1)
     assert "Nido Offline Models Status" in out
-    assert "Nemotron Speech Streaming" in out
+    assert "Whisper.cpp" in out
     assert "Laya Multilingual MLX Decision Model" in out
 
 

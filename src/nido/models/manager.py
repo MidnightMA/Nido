@@ -28,13 +28,13 @@ class ModelStatus:
 
 
 class ModelManager:
-    """Manages offline model assets for Nemotron Speech Streaming EN 0.6B Q8 GGUF and Laya-MLX."""
+    """Manages offline model assets for Whisper.cpp STT and Laya-MLX."""
 
     def __init__(self, config: Config) -> None:
         self.config = config
         self.stt_dir = Path(config.stt.model_dir).expanduser().resolve()
-        self.stt_checkpoint = getattr(config.stt, "hf_repo_id", "nvidia/nemotron-speech-streaming-en-0.6b")
-        self.stt_file = getattr(config.stt, "model_file", "nemotron-speech-streaming-en-0.6b.q8_0.gguf")
+        self.stt_checkpoint = getattr(config.stt, "hf_repo_id", "ggerganov/whisper.cpp")
+        self.stt_file = getattr(config.stt, "model_file", "ggml-base.en-q5_1.bin")
         self.laya_dir = Path(config.laya.model_dir).expanduser().resolve()
         self.laya_checkpoint = "aac6fef/laya-multilingual-mlx"
 
@@ -50,15 +50,15 @@ class ModelManager:
 
     def get_status(self) -> Dict[str, ModelStatus]:
         """Check availability and integrity of local model directories."""
-        # 1. Nemotron Speech Streaming EN 0.6B Q8 GGUF Status
+        # 1. Whisper.cpp STT Status
         stt_installed = False
         stt_details = "Not installed"
         stt_size = self._get_dir_size_mb(self.stt_dir)
         if self.stt_dir.is_dir():
-            gguf_files = list(self.stt_dir.glob("*.gguf"))
-            if gguf_files:
+            bin_files = list(self.stt_dir.glob("*.bin"))
+            if bin_files:
                 stt_installed = True
-                stt_details = f"Ready ({gguf_files[0].name}, {stt_size} MB)"
+                stt_details = f"Ready ({bin_files[0].name}, {stt_size} MB)"
             else:
                 stt_details = f"Missing {self.stt_file}"
 
@@ -90,13 +90,13 @@ class ModelManager:
 
         return {
             "stt": ModelStatus(
-                name="NVIDIA Nemotron Speech Streaming EN 0.6B Q8 GGUF",
+                name="Whisper.cpp (base.en Q5_1)",
                 directory=self.stt_dir,
                 installed=stt_installed,
                 details=stt_details,
                 checkpoint=f"{self.stt_checkpoint}/{self.stt_file}",
                 size_mb=stt_size,
-                runtime="NeMo-Speech.cpp",
+                runtime="Whisper.cpp",
                 device="CPU (AVX2, 4 threads)",
                 offline_ready=stt_installed,
             ),
@@ -119,27 +119,49 @@ class ModelManager:
         return all(m.installed for m in status.values())
 
     def setup_stt(self) -> bool:
-        """Download Nemotron Speech Streaming Q8 GGUF model (~700 MB) from Hugging Face."""
-        logger.info(f"Setting up Nemotron Q8 GGUF ({self.stt_file}) from {self.stt_checkpoint}...")
+        """Download Whisper.cpp quantized model (~59 MB) and ensure whisper-cli is installed."""
+        logger.info(f"Setting up Whisper model ({self.stt_file}) from {self.stt_checkpoint}...")
         self.stt_dir.mkdir(parents=True, exist_ok=True)
 
-        try:
-            from huggingface_hub import hf_hub_download
+        target_file = self.stt_dir / self.stt_file
+        if not target_file.is_file():
+            try:
+                import urllib.request
+                url = f"https://huggingface.co/{self.stt_checkpoint}/resolve/main/{self.stt_file}"
+                logger.info(f"Downloading {self.stt_file} (~59 MB) from {url}...")
+                urllib.request.urlretrieve(url, str(target_file))
+                logger.info("Whisper model download completed successfully.")
+            except Exception as e:
+                logger.error(f"Failed to download Whisper model: {e}")
+                return False
 
-            repo_id = self.stt_checkpoint
-            filename = self.stt_file
-            logger.info(f"Downloading {filename} (~700 MB) to {self.stt_dir}...")
-            hf_hub_download(
-                repo_id=repo_id,
-                filename=filename,
-                local_dir=str(self.stt_dir),
-                local_dir_use_symlinks=False,
-            )
-            logger.info("Nemotron Speech Streaming Q8 GGUF download completed successfully.")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to download Nemotron Q8 GGUF STT model: {e}")
-            return False
+        # Ensure whisper-cli runtime is available
+        import shutil, subprocess
+        cli_bin = (
+            shutil.which("whisper-cli")
+            or (Path.home() / ".local/bin/whisper-cli").is_file()
+            or (Path.home() / ".local/share/nido/whisper.cpp/build/bin/whisper-cli").is_file()
+        )
+        if not cli_bin:
+            logger.info("Building and installing whisper-cli runtime...")
+            w_dir = Path.home() / ".local/share/nido/whisper.cpp"
+            try:
+                if not w_dir.exists():
+                    subprocess.run(["git", "clone", "--depth", "1", "https://github.com/ggerganov/whisper.cpp.git", str(w_dir)], check=True, timeout=60)
+                build_dir = w_dir / "build"
+                build_dir.mkdir(parents=True, exist_ok=True)
+                subprocess.run(["cmake", "-B", str(build_dir), "-S", str(w_dir), "-DWHISPER_BUILD_TESTS=OFF", "-DWHISPER_BUILD_EXAMPLES=ON"], check=True, timeout=60)
+                subprocess.run(["cmake", "--build", str(build_dir), "--target", "whisper-cli", "-j", "4"], check=True, timeout=120)
+                built_bin = build_dir / "bin/whisper-cli"
+                if built_bin.is_file():
+                    bin_dest = Path.home() / ".local/bin"
+                    bin_dest.mkdir(parents=True, exist_ok=True)
+                    shutil.copy(str(built_bin), str(bin_dest / "whisper-cli"))
+                    logger.info("whisper-cli installed to ~/.local/bin/whisper-cli.")
+            except Exception as ex:
+                logger.warning(f"Could not build whisper-cli: {ex}")
+
+        return True
 
     def setup_laya(self) -> bool:
         """Download Laya multilingual MLX checkpoint from Hugging Face."""
@@ -181,9 +203,9 @@ class ModelManager:
         # 1. Verify Nemotron Speech Streaming STT
         try:
             import numpy as np
-            from nido.stt.nemotron_streaming import NemotronStreamingSTT
+            from nido.stt.whisper_streaming import WhisperStreamingSTT
 
-            rec = NemotronStreamingSTT(self.config.stt)
+            rec = WhisperStreamingSTT(self.config.stt)
             if not rec.is_loaded:
                 results["stt"] = False
             else:

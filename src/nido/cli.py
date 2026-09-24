@@ -22,10 +22,10 @@ from nido.logging import get_logger, setup_logging
 from nido.models.manager import ModelManager
 from nido.pipeline import AssistantPipeline
 from nido.realtime.controller import RealtimeController
-from nido.stt.nemotron_streaming import (
+from nido.stt.whisper_streaming import (
     MockStreamingSTT,
-    NemotronStreamingSTT,
     StreamingSTT,
+    WhisperStreamingSTT,
 )
 from nido.tools import build_default_registry
 
@@ -141,11 +141,11 @@ def cmd_test_stt_live(config: Config) -> int:
     """Open microphone and stream real-time English speech transcription to terminal."""
     manager = ModelManager(config)
     if manager.get_status()["stt"].installed:
-        stt: StreamingSTT = NemotronStreamingSTT(config.stt)
+        stt: StreamingSTT = WhisperStreamingSTT(config.stt)
         if not stt.is_loaded:
             stt = MockStreamingSTT(["open notes", "create a new note", "write hello world"])
     else:
-        print("Note: Nemotron model not installed; using mock streaming recognizer.")
+        print("Note: Whisper model not installed; using mock streaming recognizer.")
         stt = MockStreamingSTT(["open notes", "create a new note", "write hello world"])
 
     capture = MicrophoneCapture(
@@ -228,11 +228,11 @@ def cmd_test_realtime(config: Config) -> int:
     manager = ModelManager(config)
     stt: StreamingSTT
     if manager.get_status()["stt"].installed:
-        stt = NemotronStreamingSTT(config.stt)
+        stt = WhisperStreamingSTT(config.stt)
         if not stt.is_loaded:
             stt = MockStreamingSTT(["open notes", "create a new note", "write hello world"])
     else:
-        print("Note: Nemotron model not installed; using mock streaming recognizer.")
+        print("Note: Whisper model not installed; using mock streaming recognizer.")
         stt = MockStreamingSTT(["open notes", "create a new note", "write hello world"])
 
     pipeline = AssistantPipeline(config=config, stt=stt, event_bus=event_bus)
@@ -465,7 +465,7 @@ def run_daemon(config: Config, debug: bool = False) -> int:
 
     # Initialize STT
     if manager.get_status()["stt"].installed:
-        stt: StreamingSTT = NemotronStreamingSTT(config.stt)
+        stt: StreamingSTT = WhisperStreamingSTT(config.stt)
         if not stt.is_loaded:
             stt = MockStreamingSTT()
     else:

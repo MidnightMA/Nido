@@ -31,10 +31,10 @@ timeout_ms = 4000
 compact = false
 
 [stt]
-# Local directory for NVIDIA Nemotron Speech Streaming EN 0.6B Q8 GGUF model
-model_dir = "~/.local/share/nido/models/nemotron-speech-streaming-en-0.6b"
-model_file = "nemotron-speech-streaming-en-0.6b.q8_0.gguf"
-hf_repo_id = "nvidia/nemotron-speech-streaming-en-0.6b"
+# Local directory for Whisper.cpp quantized English speech model
+model_dir = "~/.local/share/nido/models/whisper"
+model_file = "ggml-base.en-q5_1.bin"
+hf_repo_id = "ggerganov/whisper.cpp"
 # Optimal threads for Intel i5-7300U (2 cores, 4 threads, AVX2)
 threads = 4
 provider = "cpu"

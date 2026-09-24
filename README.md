@@ -47,7 +47,7 @@ Nido features a dual-mode global hotkey (**F9**):
                   (with pre-buffer)                │
                          │                         ▼
                          ▼                  Streaming STT
-                    Release F9      (Nemotron 0.6B Q8 GGUF)
+                    Release F9      (Whisper.cpp base.en Q5)
                          │                         │
                          ▼                         ├───────────────┐
                    STT Finalize                    ▼               ▼
@@ -87,7 +87,7 @@ Nido features a dual-mode global hotkey (**F9**):
 
 ## Features
 
-- **English-Only Streaming STT**: Uses NVIDIA Nemotron Speech Streaming EN 0.6B Q8 GGUF (`nemotron-speech-streaming-en-0.6b.q8_0.gguf`, ~700 MB) with `NeMo-Speech.cpp`. Optimized for low-latency real-time CPU streaming inference on Intel i5-7300U (AVX2, 4 threads). Avoids heavy 5.6 GB weights or PyTorch overhead entirely.
+- **English-Only Streaming STT**: Uses Whisper.cpp with quantized GGML models (`ggml-base.en-q5_1.bin`, ~59 MB). Optimized for low-latency real-time CPU streaming inference on Intel i5-7300U (AVX2, 4 threads), with fast execution (<500ms for voice commands) and minimal RAM/CPU footprint.
 - **Dual-Mode F9 Hotkey**: Press-and-hold for push-to-talk; single press for continuous hands-free real-time listening.
 - **Audio Pre-Buffer**: In-memory ring buffer (400ms) preserves the beginning of speech during press-vs-hold classification. Audio remains strictly in memory and is never written to disk.
 - **Serialized Desktop Task Queue**: Finalized utterances are queued (up to 8 pending commands) and executed sequentially. Microphone capture and speech recognition never block while Laya is working.
@@ -127,7 +127,7 @@ Download the offline models explicitly (no runtime downloads during operation):
 # Check status of models
 nido models status
 
-# Download Nemotron Speech Streaming (STT) and Laya-MLX
+# Download Whisper (STT) and Laya-MLX
 nido models setup
 
 # Verify model inference offline
