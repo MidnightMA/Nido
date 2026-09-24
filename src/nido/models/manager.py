@@ -28,12 +28,13 @@ class ModelStatus:
 
 
 class ModelManager:
-    """Manages offline model assets for English Zipformer STT and Laya-MLX."""
+    """Manages offline model assets for Nemotron Speech Streaming EN 0.6B Q8 GGUF and Laya-MLX."""
 
     def __init__(self, config: Config) -> None:
         self.config = config
         self.stt_dir = Path(config.stt.model_dir).expanduser().resolve()
-        self.stt_checkpoint = "csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26"
+        self.stt_checkpoint = getattr(config.stt, "hf_repo_id", "nvidia/nemotron-speech-streaming-en-0.6b")
+        self.stt_file = getattr(config.stt, "model_file", "nemotron-speech-streaming-en-0.6b.q8_0.gguf")
         self.laya_dir = Path(config.laya.model_dir).expanduser().resolve()
         self.laya_checkpoint = "aac6fef/laya-multilingual-mlx"
 
@@ -49,25 +50,17 @@ class ModelManager:
 
     def get_status(self) -> Dict[str, ModelStatus]:
         """Check availability and integrity of local model directories."""
-        # 1. English Zipformer STT Status
+        # 1. Nemotron Speech Streaming EN 0.6B Q8 GGUF Status
         stt_installed = False
         stt_details = "Not installed"
         stt_size = self._get_dir_size_mb(self.stt_dir)
         if self.stt_dir.is_dir():
-            encoders = list(self.stt_dir.glob("*encoder*.onnx"))
-            decoders = list(self.stt_dir.glob("*decoder*.onnx"))
-            joiners = list(self.stt_dir.glob("*joiner*.onnx"))
-            tokens = list(self.stt_dir.glob("*tokens*.txt"))
-
-            if encoders and decoders and joiners and tokens:
+            gguf_files = list(self.stt_dir.glob("*.gguf"))
+            if gguf_files:
                 stt_installed = True
-                enc_name = encoders[0].name
-                stt_details = f"Ready ({enc_name}, {decoders[0].name}, {joiners[0].name})"
+                stt_details = f"Ready ({gguf_files[0].name}, {stt_size} MB)"
             else:
-                stt_details = (
-                    f"Incomplete (found enc: {len(encoders)}, dec: {len(decoders)}, "
-                    f"join: {len(joiners)}, tokens: {len(tokens)})"
-                )
+                stt_details = f"Missing {self.stt_file}"
 
         # 2. Laya-MLX Status
         laya_installed = False
@@ -76,31 +69,35 @@ class ModelManager:
         detected_dev = detect_mlx_device(self.config.laya.device).upper()
 
         if self.laya_dir.is_dir():
-            config_file = self.laya_dir / "config.json"
+            config_present = (
+                (self.laya_dir / "mlx_config.json").is_file()
+                or (self.laya_dir / "config.json").is_file()
+                or (self.laya_dir / "manifest.json").is_file()
+            )
             weight_files = (
                 list(self.laya_dir.glob("*.safetensors"))
                 + list(self.laya_dir.glob("*.npz"))
                 + list(self.laya_dir.glob("*.bin"))
             )
-            if config_file.is_file() and weight_files:
+            if config_present and weight_files:
                 laya_installed = True
                 laya_details = f"Ready ({len(weight_files)} weight files, {laya_size} MB)"
-            elif config_file.is_file():
+            elif config_present or weight_files:
                 laya_installed = True
-                laya_details = f"Ready (config present, {laya_size} MB)"
+                laya_details = f"Ready ({laya_size} MB)"
             else:
-                laya_details = f"Incomplete (config: {config_file.is_file()}, weights: {len(weight_files)})"
+                laya_details = f"Incomplete (weights: {len(weight_files)})"
 
         return {
             "stt": ModelStatus(
-                name="Sherpa-ONNX Streaming Zipformer EN 2023-06-26",
+                name="NVIDIA Nemotron Speech Streaming EN 0.6B Q8 GGUF",
                 directory=self.stt_dir,
                 installed=stt_installed,
                 details=stt_details,
-                checkpoint=self.stt_checkpoint,
+                checkpoint=f"{self.stt_checkpoint}/{self.stt_file}",
                 size_mb=stt_size,
-                runtime="sherpa-onnx",
-                device="CPU",
+                runtime="NeMo-Speech.cpp",
+                device="CPU (AVX2, 4 threads)",
                 offline_ready=stt_installed,
             ),
             "laya": ModelStatus(
@@ -122,24 +119,26 @@ class ModelManager:
         return all(m.installed for m in status.values())
 
     def setup_stt(self) -> bool:
-        """Download sherpa-onnx English streaming zipformer model from Hugging Face."""
-        logger.info("Setting up Sherpa-ONNX Streaming Zipformer EN 2023-06-26 model...")
+        """Download Nemotron Speech Streaming Q8 GGUF model (~700 MB) from Hugging Face."""
+        logger.info(f"Setting up Nemotron Q8 GGUF ({self.stt_file}) from {self.stt_checkpoint}...")
         self.stt_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            from huggingface_hub import snapshot_download
+            from huggingface_hub import hf_hub_download
 
             repo_id = self.stt_checkpoint
-            logger.info(f"Downloading {repo_id} to {self.stt_dir}...")
-            snapshot_download(
+            filename = self.stt_file
+            logger.info(f"Downloading {filename} (~700 MB) to {self.stt_dir}...")
+            hf_hub_download(
                 repo_id=repo_id,
+                filename=filename,
                 local_dir=str(self.stt_dir),
                 local_dir_use_symlinks=False,
             )
-            logger.info("English Streaming Zipformer download completed successfully.")
+            logger.info("Nemotron Speech Streaming Q8 GGUF download completed successfully.")
             return True
         except Exception as e:
-            logger.error(f"Failed to download English Zipformer STT model: {e}")
+            logger.error(f"Failed to download Nemotron Q8 GGUF STT model: {e}")
             return False
 
     def setup_laya(self) -> bool:
@@ -179,12 +178,12 @@ class ModelManager:
         """Test inference on local models to verify file integrity and runtime compatibility."""
         results: Dict[str, bool] = {}
 
-        # 1. Verify English Streaming Zipformer STT
+        # 1. Verify Nemotron Speech Streaming STT
         try:
             import numpy as np
-            from nido.stt.zipformer_en import ZipformerStreamingSTT
+            from nido.stt.nemotron_streaming import NemotronStreamingSTT
 
-            rec = ZipformerStreamingSTT(self.config.stt)
+            rec = NemotronStreamingSTT(self.config.stt)
             if not rec.is_loaded:
                 results["stt"] = False
             else:

@@ -44,8 +44,10 @@ class UIConfig:
 
 @dataclass
 class STTConfig:
-    model_dir: str = "~/.local/share/nido/models/sherpa-onnx-streaming-zipformer-en-2023-06-26"
-    threads: int = 2
+    model_dir: str = "~/.local/share/nido/models/nemotron-speech-streaming-en-0.6b"
+    model_file: str = "nemotron-speech-streaming-en-0.6b.q8_0.gguf"
+    hf_repo_id: str = "nvidia/nemotron-speech-streaming-en-0.6b"
+    threads: int = 4
     provider: str = "cpu"
     decoding_method: str = "greedy_search"
     enable_endpoint_detection: bool = True
@@ -194,10 +196,12 @@ def load_config(config_path: str | Path | None = None) -> Config:
     if "stt" in data and isinstance(data["stt"], dict):
         s = data["stt"]
         stt_model_dir = s.get("model_dir", config.stt.model_dir)
-        if "20M" in stt_model_dir or "shenava" in stt_model_dir:
+        if any(k in stt_model_dir.lower() for k in ("20m", "shenava", "sherpa", "zipformer")):
             stt_model_dir = config.stt.model_dir
         config.stt = STTConfig(
             model_dir=stt_model_dir,
+            model_file=str(s.get("model_file", config.stt.model_file)),
+            hf_repo_id=str(s.get("hf_repo_id", config.stt.hf_repo_id)),
             threads=int(s.get("threads", config.stt.threads)),
             provider=str(s.get("provider", config.stt.provider)),
             decoding_method=str(s.get("decoding_method", config.stt.decoding_method)),

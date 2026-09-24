@@ -80,9 +80,13 @@ class LayaDecisionAgent:
             return
 
         # Ensure directory contains weight / config files
-        config_file = self.model_dir / "config.json"
-        if not config_file.is_file():
-            logger.warning(f"Missing config.json in {self.model_dir}. Run 'nido models setup'.")
+        config_present = (
+            (self.model_dir / "mlx_config.json").is_file()
+            or (self.model_dir / "config.json").is_file()
+            or (self.model_dir / "manifest.json").is_file()
+        )
+        if not config_present:
+            logger.warning(f"Missing config in {self.model_dir}. Run 'nido models setup'.")
             return
 
         try:

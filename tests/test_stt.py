@@ -5,6 +5,7 @@ import numpy as np
 from nido.config import STTConfig
 from nido.stt import (
     MockStreamingSTT,
+    NemotronStreamingSTT,
     StreamingSTT,
     ZipformerStreamingSTT,
 )
@@ -74,3 +75,55 @@ def test_zipformer_extract_text_uses_get_result() -> None:
     # Calling finalize
     final = rec.finalize()
     assert final == "hello world"
+
+
+def test_nemotron_streaming_stt_protocol_and_lifecycle() -> None:
+    """Verify NemotronStreamingSTT protocol adherence, buffering, and silence tracking."""
+    rec = NemotronStreamingSTT(STTConfig(model_dir="/non/existent/path"))
+    assert rec.is_loaded is False
+
+    rec.start_session()
+    assert rec.get_partial_text() == ""
+    assert rec.is_endpoint() is False
+
+    # Feed speech chunk (high amplitude)
+    speech_chunk = np.ones(1600, dtype=np.float32) * 0.2
+    rec.feed_audio(speech_chunk)
+    assert rec._speech_detected is True
+    assert rec._silence_duration_s == 0.0
+    assert rec.is_endpoint() is False
+
+    # Feed silence chunk
+    silence_chunk = np.zeros(16000, dtype=np.float32)  # 1.0s silence > 0.8s threshold
+    rec.feed_audio(silence_chunk)
+    assert rec.is_endpoint() is True
+
+    # Finalize resets
+    final = rec.finalize()
+    assert final == ""
+    assert rec.is_endpoint() is False
+    rec.stop_session()
+
+
+def test_nemotron_transcribe_with_mock_model() -> None:
+    """Verify Nemotron transcribe_waveform with mocked NeMo-Speech.cpp engine."""
+    rec = NemotronStreamingSTT(STTConfig(model_dir="/non/existent/path"))
+
+    mock_ctx = MagicMock()
+    mock_ctx.transcribe.return_value = "open dolphin"
+    rec._ctx = mock_ctx
+    rec._backend_type = "python_module"
+
+    dummy_audio = np.ones(16000, dtype=np.float32) * 0.05
+    result = rec.transcribe_waveform(dummy_audio)
+    assert result == "open dolphin"
+    mock_ctx.transcribe.assert_called_once()
+
+
+
+
+
+
+
+
+

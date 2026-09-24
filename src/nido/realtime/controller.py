@@ -15,7 +15,7 @@ from nido.events import EventBus, PipelineEvent, PipelineStage
 from nido.logging import get_logger
 from nido.realtime.queue import AgentTask, AgentTaskQueue
 from nido.realtime.state import F9State, F9StateMachine
-from nido.stt.zipformer_en import StreamingSTT, ZipformerStreamingSTT
+from nido.stt.nemotron_streaming import NemotronStreamingSTT, StreamingSTT
 
 logger = get_logger("nido.realtime.controller")
 
@@ -35,7 +35,10 @@ class RealtimeController:
         self.rt_config: RealtimeConfig = getattr(config, "realtime", RealtimeConfig())
         self.event_bus = event_bus or EventBus()
 
-        self.stt: StreamingSTT = stt or ZipformerStreamingSTT(config.stt)
+        self.stt: StreamingSTT = stt or NemotronStreamingSTT(config.stt)
+        if not self.stt.is_loaded:
+            from nido.stt.nemotron_streaming import MockStreamingSTT
+            self.stt = MockStreamingSTT()
         self.desktop_agent = desktop_agent
         self.capture = capture or MicrophoneCapture(
             device=config.audio.device,

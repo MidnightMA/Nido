@@ -16,7 +16,7 @@ from nido.desktop.input import detect_input_backend
 from nido.events import EventBus, PipelineEvent, PipelineStage
 from nido.laya.agent import LayaDecisionAgent, MockLayaAgent
 from nido.logging import get_logger
-from nido.stt.zipformer_en import StreamingSTT, ZipformerStreamingSTT
+from nido.stt.nemotron_streaming import NemotronStreamingSTT, StreamingSTT
 from nido.tools.registry import ToolRegistry
 
 logger = get_logger("nido.pipeline")
@@ -52,7 +52,10 @@ class AssistantPipeline:
         router: Optional[Any] = None,
     ) -> None:
         self.config = config
-        self.stt = stt or ZipformerStreamingSTT(config.stt)
+        self.stt = stt or NemotronStreamingSTT(config.stt)
+        if not self.stt.is_loaded:
+            from nido.stt.nemotron_streaming import MockStreamingSTT
+            self.stt = MockStreamingSTT()
         self.registry = registry or ToolRegistry()
         self.event_bus = event_bus or EventBus()
         self.current_stage = PipelineStage.IDLE

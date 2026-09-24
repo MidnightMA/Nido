@@ -96,7 +96,7 @@ def test_load_nonexistent_file_returns_defaults() -> None:
     config = load_config("/non/existent/path/config.toml")
     assert config.assistant.name == "Nido"
     assert config.hotkey.key == "KEY_F9"
-    assert "2023-06-26" in config.stt.model_dir
+    assert "nemotron" in config.stt.model_dir
 
 
 def test_legacy_model_dir_auto_migrates() -> None:
@@ -110,7 +110,7 @@ def test_legacy_model_dir_auto_migrates() -> None:
 
     try:
         config = load_config(temp_path)
-        assert "2023-06-26" in config.stt.model_dir
+        assert "nemotron" in config.stt.model_dir
     finally:
         Path(temp_path).unlink(missing_ok=True)
 

@@ -34,11 +34,25 @@ def test_cli_models_status() -> None:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         code = main(["models", "status"])
-    assert code in (0, 1)
     out = buf.getvalue()
+    print("\n" + out)
+    assert code in (0, 1)
     assert "Nido Offline Models Status" in out
-    assert "Sherpa-ONNX Streaming Zipformer EN" in out
+    assert "Nemotron Speech Streaming" in out
     assert "Laya Multilingual MLX Decision Model" in out
+
+
+def test_cli_models_verify() -> None:
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = main(["models", "verify"])
+    out = buf.getvalue()
+    print("\n" + out)
+    assert code == 0
+    assert "✓ PASS: stt" in out
+    assert "✓ PASS: laya" in out
+
+
 
 
 def test_cli_test_laya() -> None:
